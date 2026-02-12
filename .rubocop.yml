@@ -1,0 +1,83 @@
+AllCops:
+  TargetRubyVersion: 3.2
+  NewCops: enable
+  SuggestExtensions: false
+  Exclude:
+    - "spec/dummy_app/**/*"
+
+Style/MultilineBlockChain:
+  Enabled: false
+
+Style/SingleLineMethods:
+  Enabled: false
+
+Style/StringLiterals:
+  Enabled: true
+  EnforcedStyle: double_quotes
+
+Style/StringLiteralsInInterpolation:
+  Enabled: true
+  EnforcedStyle: double_quotes
+
+Style/Documentation:
+  Enabled: false
+
+Style/TrailingCommaInArguments:
+  EnforcedStyleForMultiline: comma
+
+Style/TrailingCommaInArrayLiteral:
+  EnforcedStyleForMultiline: comma
+
+Style/TrailingCommaInHashLiteral:
+  EnforcedStyleForMultiline: comma
+
+Style/HashSyntax:
+  EnforcedShorthandSyntax: always
+
+Naming/MemoizedInstanceVariableName:
+  Enabled: false
+
+Style/ClassAndModuleChildren:
+  Enabled: false
+
+Style/DoubleNegation:
+  Enabled: false
+
+Naming/MethodParameterName:
+  AllowedNames: e, on, id, if, as, io
+
+Metrics/BlockLength:
+  Max: 50
+  Exclude:
+    - 'spec/**/*'
+    - '*.gemspec'
+
+Metrics/ModuleLength:
+  Max: 120
+
+Metrics/ClassLength:
+  Max: 150
+  Exclude:
+    - "lib/data_shifter/shift.rb"
+
+Metrics/MethodLength:
+  Max: 30
+
+Layout/LineLength:
+  Max: 160
+
+Naming/VariableNumber:
+  Exclude:
+    - 'spec/**/*'
+
+Metrics/PerceivedComplexity:
+  Max: 20
+
+Metrics/AbcSize:
+  Max: 32
+
+Metrics/CyclomaticComplexity:
+  Max: 20
+
+Metrics/ParameterLists:
+  Max: 10
