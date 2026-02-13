@@ -4,6 +4,7 @@ AllCops:
   SuggestExtensions: false
   Exclude:
     - "spec/dummy_app/**/*"
+    - "**/vendor/**"
 
 Style/MultilineBlockChain:
   Enabled: false
