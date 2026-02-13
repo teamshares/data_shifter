@@ -23,5 +23,17 @@ jobs:
         with:
           ruby-version: ${{ matrix.ruby }}
           bundler-cache: true
+      - name: Cache dummy app bundle
+        uses: actions/cache@v4
+        with:
+          path: spec/dummy_app/vendor/bundle
+          key: dummy-app-bundle-${{ runner.os }}-${{ matrix.ruby }}-${{ hashFiles('spec/dummy_app/Gemfile') }}
+          restore-keys: |
+            dummy-app-bundle-${{ runner.os }}-${{ matrix.ruby }}-
+      - name: Install dummy app dependencies
+        run: |
+          cd spec/dummy_app
+          bundle config set --local path 'vendor/bundle'
+          bundle install
       - name: Run the default task
         run: bundle exec rake
