@@ -251,6 +251,6 @@ require:
 ## Requirements
 
 - Ruby ≥ 3.2.1
-- Rails (ActiveRecord, ActiveSupport, Railties) ≥ 6.1
+- Rails (ActiveRecord, ActiveSupport, Railties) ≥ 7.0
 - `axn` (Shift classes include `Axn`)
 - `ruby-progressbar` (for progress bars)

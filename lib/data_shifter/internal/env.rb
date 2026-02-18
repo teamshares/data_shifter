@@ -33,6 +33,18 @@ module DataShifter
       def continue_from_id
         ENV.fetch("CONTINUE_FROM", nil).presence
       end
+
+      # Get countdown seconds for no-transaction warning.
+      # DATA_SHIFTER_NO_TX_COUNTDOWN=0 skips the wait (still prints warning).
+      # Returns 5 by default.
+      def no_transaction_countdown_seconds
+        value = ENV.fetch("DATA_SHIFTER_NO_TX_COUNTDOWN", nil)
+        return 5 if value.blank?
+
+        Integer(value, 10)
+      rescue ArgumentError
+        5
+      end
     end
   end
 end
