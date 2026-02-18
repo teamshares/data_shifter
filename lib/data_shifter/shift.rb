@@ -147,6 +147,10 @@ module DataShifter
 
     def _with_transaction_for_dry_run(chain)
       if _transaction_mode == :none
+        Internal::Output.warn_no_transaction_and_countdown(
+          io: $stdout,
+          seconds: Internal::Env.no_transaction_countdown_seconds,
+        )
         chain.call
         return
       end

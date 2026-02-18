@@ -145,6 +145,27 @@ module DataShifter
           status_tips.join(" or ")
         end
       end
+
+      def warn_no_transaction_and_countdown(io:, seconds: 5)
+        io.puts ""
+        io.puts "!" * 60
+        io.puts "[WARNING] This shift is running WITHOUT automatic transactions."
+        io.puts ""
+        io.puts "  - DB writes and side effects will NOT be automatically rolled back."
+        io.puts "  - \"Dry run\" mode only applies if YOUR code guards writes with `dry_run?`."
+        io.puts "  - If you have not guarded all writes/side effects, they WILL be applied."
+        io.puts ""
+        io.puts "Press Ctrl+C to abort, or wait to continue..."
+        io.puts "!" * 60
+
+        seconds.times do |i|
+          remaining = seconds - i
+          io.puts "Continuing in #{remaining}..."
+          sleep(1)
+        end
+
+        io.puts ""
+      end
     end
   end
 end
