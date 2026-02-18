@@ -36,9 +36,9 @@ Gem::Specification.new do |spec|
   spec.executables = spec.files.grep(%r{\Aexe/}) { |f| File.basename(f) }
   spec.require_paths = ["lib"]
 
-  spec.add_dependency "activerecord", ">= 6.1"
-  spec.add_dependency "activesupport", ">= 6.1"
+  spec.add_dependency "activerecord", ">= 7.0"
+  spec.add_dependency "activesupport", ">= 7.0"
   spec.add_dependency "axn", ">= 0.1.0-alpha.4", "< 0.2.0" # A terse convention for business logic
-  spec.add_dependency "railties", ">= 6.1"
+  spec.add_dependency "railties", ">= 7.0"
   spec.add_dependency "ruby-progressbar", ">= 1.13"
 end

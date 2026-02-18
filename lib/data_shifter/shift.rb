@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "axn"
+require "active_support/isolated_execution_state"
 require_relative "internal/env"
 require_relative "internal/output"
 require_relative "internal/signal_handler"
@@ -29,7 +30,7 @@ require_relative "internal/progress_bar"
 # Running:
 #   - `rake data:shift:backfill_foo` (dry run by default)
 #   - `COMMIT=1 rake data:shift:backfill_foo` (apply changes)
-#   - Or call directly: `MyShift.call(dry_run: false)` (Axn semantics)
+#   - Or call directly: `MyShift.call(dry_run: false)` (Axn semantics) - but note default location not auto-loaded
 #
 # Transaction modes (set at class level with `transaction`):
 #   - `transaction :single` (default): one transaction for the whole run (all-or-nothing).
@@ -114,7 +115,7 @@ module DataShifter
     # --- Public API (intentionally exposed to subclasses) ---
 
     def call
-      each_record(collection) { |record| process_record(record) }
+      _for_each_record_in(collection) { |record| process_record(record) }
     end
 
     def find_exactly!(model, ids)
@@ -138,17 +139,6 @@ module DataShifter
 
     def log(message)
       puts message
-    end
-
-    # Public so signal handler (Ctrl+T/SIGUSR1) can call it with explicit receiver
-    def print_progress
-      Internal::Output.print_progress(
-        io: $stdout,
-        stats: @stats,
-        errors: @errors,
-        start_time: @start_time,
-        status_interval: Internal::Env.status_interval_seconds,
-      )
     end
 
     private
@@ -214,17 +204,27 @@ module DataShifter
 
     # --- Record iteration ---
 
-    def each_record(records, label: nil, &)
+    def _print_progress
+      Internal::Output.print_progress(
+        io: $stdout,
+        stats: @stats,
+        errors: @errors,
+        start_time: @start_time,
+        status_interval: Internal::Env.status_interval_seconds,
+      )
+    end
+
+    def _for_each_record_in(records, label: nil, &)
       _reset_tracking
-      Thread.current[:_data_shifter_current_run] = self
-      status_proc = proc { Thread.current[:_data_shifter_current_run]&.print_progress }
+      ActiveSupport::IsolatedExecutionState[:_data_shifter_current_run] = self
+      status_proc = proc { ActiveSupport::IsolatedExecutionState[:_data_shifter_current_run]&.send(:_print_progress) }
       prev_handlers = Internal::SignalHandler.install_status_traps(status_proc)
       begin
         _each_record_impl(records, label:, &)
       rescue Interrupt
         _handle_interrupt
       ensure
-        Thread.current[:_data_shifter_current_run] = nil
+        ActiveSupport::IsolatedExecutionState.delete(:_data_shifter_current_run)
         Internal::SignalHandler.restore_status_traps(prev_handlers)
       end
     end
@@ -342,7 +342,7 @@ module DataShifter
       return unless @start_time && (Time.current - @last_status_print) >= interval
 
       @last_status_print = Time.current
-      print_progress
+      _print_progress
     end
 
     # --- Output helpers ---
