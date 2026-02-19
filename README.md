@@ -79,6 +79,36 @@ Shifts run in **dry run** mode by default. In the automatic transaction modes (`
 
 Non-DB side effects (API calls, emails, enqueued jobs, etc.) obviously cannot be automatically rolled back, so guard them with e.g. `return if dry_run?`.
 
+### Automatic side-effect guards (dry run)
+
+In **dry run** mode, DataShifter automatically blocks or fakes common side effects so that unguarded code is less likely to hit the network or send mail/jobs:
+
+| Service      | Behavior in dry run |
+|-------------|----------------------|
+| **HTTP**    | Blocked via WebMock (`disable_net_connect!`). Allow specific hosts with `allow_net_connect` or `DataShifter.dry_run_allow_net_connect`. |
+| **ActionMailer** | `perform_deliveries = false` (restored after run). |
+| **ActiveJob**    | Queue adapter set to `:test` (restored after run). |
+| **Sidekiq**      | `Sidekiq::Testing.fake!` (restored with `disable!` after run). Only applied if `Sidekiq::Testing` is already loaded. |
+
+To allow HTTP to specific hosts during dry run (e.g. a migration that must call an API to compute values), use the per-shift DSL or global config (NOTE: it is your responsibility to ensure you only make readonly requests in `dry_run?` mode):
+
+```ruby
+# Per shift
+module DataShifts
+  class BackfillFromApi < DataShifter::Shift
+    allow_net_connect "api.readonly.example.com", %r{\.internal\.company\z}
+    # ...
+  end
+end
+```
+
+```ruby
+# Global (e.g. in config/initializers/data_shifter.rb)
+DataShifter.dry_run_allow_net_connect = ["api.readonly.example.com"]
+```
+
+Allowed hosts are combined (per-shift + global). Restore (WebMock, mail, jobs) happens in an `ensure` so later code and other specs are unaffected.
+
 ## Transaction modes
 
 Set the transaction mode at the class level:
@@ -254,3 +284,4 @@ require:
 - Rails (ActiveRecord, ActiveSupport, Railties) ≥ 7.0
 - `axn` (Shift classes include `Axn`)
 - `ruby-progressbar` (for progress bars)
+- `webmock` (for dry-run HTTP blocking; optional allowlist via `allow_net_connect` / `DataShifter.dry_run_allow_net_connect`)

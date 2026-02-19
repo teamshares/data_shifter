@@ -756,6 +756,103 @@ RSpec.describe DataShifter::Shift do
     end
   end
 
+  describe "side-effect guards (dry run)" do
+    it "blocks HTTP to disallowed hosts during dry run" do
+      # Guard applies WebMock.disable_net_connect!; direct request must raise
+      expect do
+        DataShifter::Internal::SideEffectGuards.with_guards(
+          shift_class: Class.new(described_class)
+        ) { Net::HTTP.get(URI("http://external.example.com/")) }
+      end.to raise_error(WebMock::NetConnectNotAllowedError)
+    end
+
+    it "blocks HTTP when running a shift in dry run (integration)" do
+      record_a # ensure at least one user exists
+      migration_class = Class.new(described_class) do
+        define_method(:collection) { User.limit(1) }
+        define_method(:process_record) { |_record| Net::HTTP.get(URI("http://external.example.com/")) }
+      end
+      expect { migration_class.call(dry_run: true) }.to raise_error(WebMock::NetConnectNotAllowedError)
+    end
+
+    it "allows HTTP to hosts listed in allow_net_connect during dry run" do
+      record_a # ensure at least one user exists
+      stub_request(:get, "http://allowed.example.com/").to_return(status: 200, body: "ok")
+      migration_class = Class.new(described_class) do
+        allow_net_connect "allowed.example.com"
+
+        define_method(:collection) { User.limit(1) }
+        define_method(:process_record) { |_record| Net::HTTP.get(URI("http://allowed.example.com/")) }
+      end
+      result = migration_class.call(dry_run: true)
+      expect(result).to be_ok
+    end
+
+    it "does not block HTTP when commit (dry_run: false)" do
+      stub_request(:get, "http://example.com/").to_return(status: 200)
+      migration_class = Class.new(described_class) do
+        define_method(:collection) { User.limit(1) }
+        define_method(:process_record) { |_record| Net::HTTP.get(URI("http://example.com/")) }
+      end
+      result = migration_class.call(dry_run: false)
+      expect(result).to be_ok
+    end
+
+    it "restores WebMock after dry run so other code is unaffected" do
+      migration_class = Class.new(described_class) do
+        define_method(:collection) { [] }
+        define_method(:process_record) { |_record| nil }
+      end
+      migration_class.call(dry_run: true)
+      # After run, allow_net_connect! was called; net connect is allowed again
+      stub_request(:get, "http://after.example.com/").to_return(status: 200)
+      expect { Net::HTTP.get(URI("http://after.example.com/")) }.not_to raise_error
+    end
+
+    context "ActionMailer guard" do
+      it "sets perform_deliveries to false during dry run and restores after" do
+        original = ActionMailer::Base.perform_deliveries
+        value_during_block = nil
+        DataShifter::Internal::SideEffectGuards.with_guards(shift_class: Class.new(described_class)) do
+          value_during_block = ActionMailer::Base.perform_deliveries
+        end
+        expect(value_during_block).to eq(false)
+        expect(ActionMailer::Base.perform_deliveries).to eq(original)
+      end
+    end
+
+    context "ActiveJob guard" do
+      it "uses test queue adapter during dry run and restores after" do
+        original_adapter = ActiveJob::Base.queue_adapter
+        adapter_during_block = nil
+        DataShifter::Internal::SideEffectGuards.with_guards(shift_class: Class.new(described_class)) do
+          adapter_during_block = ActiveJob::Base.queue_adapter
+        end
+        expect(adapter_during_block).to be_a(ActiveJob::QueueAdapters::TestAdapter)
+        expect(ActiveJob::Base.queue_adapter).to eq(original_adapter)
+      end
+    end
+
+    context "Sidekiq guard" do
+      it "calls fake! during dry run and disable! on restore" do
+        expect(Sidekiq::Testing).to receive(:fake!).and_call_original
+        expect(Sidekiq::Testing).to receive(:disable!).and_call_original
+        DataShifter::Internal::SideEffectGuards.with_guards(shift_class: Class.new(described_class)) do
+          expect(Sidekiq::Testing.fake?).to be true
+        end
+      end
+    end
+  end
+
+  describe ".allow_net_connect" do
+    it "stores allowed hosts for dry run" do
+      klass = Class.new(described_class) do
+        allow_net_connect "api.example.com", %r{\.readonly\.local\z}
+      end
+      expect(klass._dry_run_allow_net_connect).to eq(["api.example.com", %r{\.readonly\.local\z}])
+    end
+  end
+
   describe "transaction DSL" do
     let(:migration_class) { Class.new(described_class) }
 

@@ -7,6 +7,7 @@ require_relative "internal/output"
 require_relative "internal/signal_handler"
 require_relative "internal/record_utils"
 require_relative "internal/progress_bar"
+require_relative "internal/side_effect_guards"
 
 # Base class for data shifts. Dry-run by default, progress bars, transaction modes, consistent summaries.
 #
@@ -51,6 +52,7 @@ module DataShifter
 
     log_calls false if respond_to?(:log_calls)
 
+    around :_with_side_effect_guards
     around :_with_transaction_for_dry_run
     before :_reset_tracking
     on_success :_print_summary
@@ -61,6 +63,7 @@ module DataShifter
     class_attribute :_description, default: nil
     class_attribute :_task_name, default: nil
     class_attribute :_throttle_interval, default: nil
+    class_attribute :_dry_run_allow_net_connect, default: [], instance_accessor: false
 
     class << self
       def description(text = nil)
@@ -104,6 +107,12 @@ module DataShifter
         self._throttle_interval = interval
       end
 
+      # Allow these hosts (or regexes) for HTTP during dry run. Combines with DataShifter.dry_run_allow_net_connect.
+      # Example: allow_net_connect "api.readonly.example.com", %r{\.internal\.company\z}
+      def allow_net_connect(*hosts)
+        self._dry_run_allow_net_connect = hosts.flatten
+      end
+
       def run!
         dry_run = Internal::Env.dry_run?
         result = call(dry_run:)
@@ -144,6 +153,14 @@ module DataShifter
     private
 
     # --- Axn lifecycle hooks ---
+
+    def _with_side_effect_guards(chain)
+      if dry_run?
+        Internal::SideEffectGuards.with_guards(shift_class: self.class) { chain.call }
+      else
+        chain.call
+      end
+    end
 
     def _with_transaction_for_dry_run(chain)
       if _transaction_mode == :none

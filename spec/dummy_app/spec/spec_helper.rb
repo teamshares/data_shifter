@@ -4,6 +4,9 @@ ENV["RAILS_ENV"] ||= "test"
 ENV["RACK_ENV"] ||= "test"
 ENV["DATA_SHIFTER_NO_TX_COUNTDOWN"] ||= "0"
 
+require "webmock/rspec"
+require "sidekiq/testing"
+
 require File.expand_path("../config/environment", __dir__)
 
 Dir[File.expand_path("support/**/*.rb", __dir__)].each { |f| require f }
