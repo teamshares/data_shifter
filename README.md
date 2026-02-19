@@ -244,7 +244,15 @@ The generator refuses to create a second shift if it would produce a duplicate r
 
 ## Testing shifts (RSpec)
 
-This gem ships a small helper module for running shifts in tests:
+This gem ships a small helper module for running shifts in tests. Require it and include `DataShifter::SpecHelper` in specs or in `RSpec.configure` for `type: :data_shift`.
+
+**Helpers:**
+
+- **`run_data_shift(shift_class, dry_run: true, commit: false)`** — Runs the shift; returns an `Axn::Result`. Use `commit: true` to run in commit mode.
+- **`silence_data_shift_output`** — Suppresses STDOUT for the block (e.g. progress bar).
+- **`capture_data_shift_output`** — Runs the block and returns `[result, output_string]` for asserting on printed output.
+
+Use `expect { ... }.not_to change(...)` and `expect { ... }.to change(...)` to assert that data stays unchanged in dry run and changes when committed:
 
 ```ruby
 require "data_shifter/spec_helper"
@@ -252,18 +260,21 @@ require "data_shifter/spec_helper"
 RSpec.describe DataShifts::BackfillFoo do
   include DataShifter::SpecHelper
 
-  before { allow($stdout).to receive(:puts) } # silence shift output
+  before { allow($stdout).to receive(:puts) }
 
   it "does not persist changes in dry run" do
-    result = run_data_shift(described_class, dry_run: true)
-    expect(result).to be_ok
-    # TODO: add some check confirming data is unchanged
+    expect do
+      result = run_data_shift(described_class, dry_run: true)
+      expect(result).to be_ok
+    end.not_to change(Foo, :count)
   end
 
   it "persists changes when committed" do
-    result = run_data_shift(described_class, commit: true)
-    expect(result).to be_ok
-    # TODO: add some check confirming data is changed
+    expect do
+      result = run_data_shift(described_class, commit: true)
+      expect(result).to be_ok
+    end.to change(Foo, :count).by(1)
+    # Or for in-place updates: .to change { record.reload.bar }.from(nil).to("baz")
   end
 end
 ```
