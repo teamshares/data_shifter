@@ -37,10 +37,9 @@ require_relative "internal/side_effect_guards"
 # Transaction modes (set at class level with `transaction`):
 #   - `transaction :single` (default): one transaction for the whole run (all-or-nothing).
 #   - `transaction :per_record`: each record in its own transaction.
-#   - `transaction false`: no automatic transactions; guard writes with `return if dry_run?`.
+#   - `transaction false`: no automatic transaction in commit mode; in dry run we still wrap in a rollback transaction.
 #
-# Dry run: In `:single` and `:per_record`, dry_run rolls back DB changes automatically.
-# Non-DB side effects are not rolled back; guard with `return if dry_run?` / `return unless dry_run?`.
+# Dry run: DB changes are always rolled back (we wrap in a transaction and raise Rollback). Guard non-DB side effects with `return if dry_run?`.
 #
 # Fixed list of IDs (fail fast): Use find_exactly!(Model, [id1, id2, ...]) in `collection`.
 # Large collections: Return an ActiveRecord::Relation and iteration uses `find_each`.
@@ -169,7 +168,14 @@ module DataShifter
           io: $stdout,
           seconds: Internal::Env.no_transaction_countdown_seconds,
         )
-        chain.call
+        if dry_run?
+          ActiveRecord::Base.transaction do
+            chain.call
+            raise ActiveRecord::Rollback
+          end
+        else
+          chain.call
+        end
         return
       end
 

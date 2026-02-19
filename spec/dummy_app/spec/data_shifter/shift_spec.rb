@@ -251,9 +251,9 @@ RSpec.describe DataShifter::Shift do
         end
       end
 
-      it "does not roll back (no transaction); changes persist" do
+      it "still rolls back (dry run always wrapped in transaction)" do
         migration_class.call(dry_run: true)
-        expect(records.map { |r| r.reload.time_zone }).to all(eq("Pacific Time (US & Canada)"))
+        expect(records.map { |r| r.reload.time_zone }).to all(eq("Eastern Time (US & Canada)"))
       end
     end
 

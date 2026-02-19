@@ -77,11 +77,9 @@ Shifts run in **dry run** mode by default. In the automatic transaction modes (`
 - **Commit**: `COMMIT=1 rake data:shift:backfill_foo`
   - (`COMMIT=true` or `DRY_RUN=false` also commit)
 
-Non-DB side effects (API calls, emails, enqueued jobs, etc.) obviously cannot be automatically rolled back, so guard them with e.g. `return if dry_run?`.
-
 ### Automatic side-effect guards (dry run)
 
-In **dry run** mode, DataShifter automatically blocks or fakes common side effects so that unguarded code is less likely to hit the network or send mail/jobs:
+In **dry run** mode, DataShifter automatically blocks or fakes these side effects so unguarded code is less likely to hit the network or send mail/jobs:
 
 | Service      | Behavior in dry run |
 |-------------|----------------------|
@@ -89,6 +87,8 @@ In **dry run** mode, DataShifter automatically blocks or fakes common side effec
 | **ActionMailer** | `perform_deliveries = false` (restored after run). |
 | **ActiveJob**    | Queue adapter set to `:test` (restored after run). |
 | **Sidekiq**      | `Sidekiq::Testing.fake!` (restored with `disable!` after run). Only applied if `Sidekiq::Testing` is already loaded. |
+
+**Guarding other side effects:** For anything we don’t cover (e.g. another service, or allowed HTTP that mutates), use e.g. `return if dry_run?` in your shift. DB changes are always rolled back in dry run; only non-DB side effects need this.
 
 To allow HTTP to specific hosts during dry run (e.g. a migration that must call an API to compute values), use the per-shift DSL or global config (NOTE: it is your responsibility to ensure you only make readonly requests in `dry_run?` mode):
 
@@ -115,7 +115,7 @@ Set the transaction mode at the class level:
 
 - **`transaction :single` / `transaction true` (default)**: one DB transaction for the entire run; dry run rolls back at the end; a record error aborts the run.
 - **`transaction :per_record`**: in commit mode, each record runs in its own transaction (errors are collected and the run continues); in dry run, the run is wrapped in a single rollback transaction.
-- **`transaction false` / `transaction :none`**: CAUTION: NOT RECOMMENDED. No automatic transactions and no automatic rollback; ⚠️ **you must manually guard DB writes AND side effects with `dry_run?`.**
+- **`transaction false` / `transaction :none`**: No automatic transaction in **commit** mode only. In dry run, the run is still wrapped in a single rollback transaction so DB changes are never committed. Use when you have external side effects or your own transaction strategy in commit mode.
 
 ```ruby
 module DataShifts
@@ -175,7 +175,7 @@ Notes:
 
 - **Start with a dry run**: run the task once with no environment variables set, confirm logs and summary look right, then re-run with `COMMIT=1`.
 - **Make shifts idempotent**: structure `process_record` so re-running is safe (for example, update only when the target column is `NULL`, or compute the same derived value deterministically).
-- **Guard side effects explicitly**: even in dry run, API calls / emails / enqueues are not rolled back. Use `dry_run?` helper to skip side-effectful code.
+- **Guard side effects we don’t auto-block**: use `return if dry_run?` for any side effect not covered by Automatic side-effect guards (see above).
 
 ### Choosing a transaction mode (behavior + guidance)
 
@@ -186,8 +186,8 @@ Notes:
   - **Behavior**: in commit mode, records are committed one-by-one; errors are collected and the run continues; the overall run fails at the end if any record failed.
   - **Use when**: you want maximum progress and are OK investigating/fixing a subset of failures.
 - **`transaction false` / `:none`**:
-  - **Behavior**: no automatic transaction wrapper (even in dry run) and no automatic rollback.
-  - **Use when**: you have intentional external side effects, or you’re doing your own transaction/locking strategy—**but always guard writes/side effects with `dry_run?`.**
+  - **Behavior**: in commit mode, no automatic transaction; in dry run, the run is still wrapped in a rollback transaction so DB changes are not committed.
+  - **Use when**: you have intentional external side effects or your own transaction/locking strategy in commit mode.
 
 ### Performance and operability (recommended)
 
@@ -277,16 +277,6 @@ RSpec.describe DataShifts::BackfillFoo do
     # Or for in-place updates: .to change { record.reload.bar }.from(nil).to("baz")
   end
 end
-```
-
-## Optional RuboCop cop
-
-If you use `transaction false` / `transaction :none`, you should guard writes and side effects with `dry_run?`. You can help avoid mistakes by linting that the helper is at least called once via the bundled cop:
-
-```yaml
-# .rubocop.yml
-require:
-  - data_shifter/rubocop
 ```
 
 ## Requirements
