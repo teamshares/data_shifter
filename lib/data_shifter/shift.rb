@@ -31,7 +31,8 @@ require_relative "internal/side_effect_guards"
 # Running:
 #   - `rake data:shift:backfill_foo` (dry run by default)
 #   - `COMMIT=1 rake data:shift:backfill_foo` (apply changes)
-#   - Or call directly: `MyShift.call(dry_run: false)` (Axn semantics) - but note default location not auto-loaded
+#   - Or technically can call directly: `MyShift.call(dry_run: false)` (Axn semantics) - BUT:
+#     NOTES: default location not auto-loaded, and in general it is strongly recommended to use the rake task.
 #
 # Transaction modes (set at class level with `transaction`):
 #   - `transaction :single` (default): one transaction for the whole run (all-or-nothing).

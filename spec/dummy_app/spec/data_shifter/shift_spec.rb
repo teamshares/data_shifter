@@ -798,13 +798,13 @@ RSpec.describe DataShifter::Shift do
       expect(result).to be_ok
     end
 
-    it "restores WebMock after dry run so other code is unaffected" do
+    it "restores WebMock after dry run to previous state (e.g. enabled in specs)" do
       migration_class = Class.new(described_class) do
         define_method(:collection) { [] }
         define_method(:process_record) { |_record| nil }
       end
       migration_class.call(dry_run: true)
-      # After run, allow_net_connect! was called; net connect is allowed again
+      # Restored to enabled (spec env), so stubs apply again
       stub_request(:get, "http://after.example.com/").to_return(status: 200)
       expect { Net::HTTP.get(URI("http://after.example.com/")) }.not_to raise_error
     end

@@ -1,11 +1,16 @@
 # frozen_string_literal: true
 
-require "webmock"
-
 module DataShifter
   module Internal
     # Applies and restores side-effect guards during dry runs so that HTTP, mail,
     # and job enqueues are blocked (or faked) unless explicitly allowed.
+    #
+    # Production impact:
+    # - WebMock: required only when apply_webmock runs (i.e. during a dry run), so commit-only
+    #   production runs never load WebMock. On restore we revert to the previous state (enable!
+    #   or disable!) so e.g. specs that had WebMock enabled are not left with it disabled.
+    # - ActionMailer / ActiveJob / Sidekiq: no extra loading; we only toggle existing config
+    #   for the duration of the block and restore in ensure, so impact is scoped to the run.
     module SideEffectGuards
       class << self
         # Applies side-effect guards, yields, then restores. Call only when running in dry run.
@@ -29,11 +34,24 @@ module DataShifter
         end
 
         def apply_webmock(shift_class, saved)
+          if defined?(WebMock)
+            # WebMock already loaded (e.g. in specs); capture so we can restore
+            saved[:webmock_was_enabled] = net_http_webmock_enabled?
+          else
+            require "webmock"
+            saved[:webmock_was_enabled] = false
+          end
           WebMock.enable!
           allowed = allowed_net_hosts(shift_class)
           opts = allowed.any? ? { allow: allowed } : {}
           WebMock.disable_net_connect!(**opts)
           saved[:webmock] = true
+        end
+
+        def net_http_webmock_enabled?
+          Net::HTTP.socket_type.to_s.include?("StubSocket")
+        rescue StandardError
+          false
         end
 
         def allowed_net_hosts(shift_class)
@@ -60,7 +78,9 @@ module DataShifter
         end
 
         def restore_guards(saved)
-          WebMock.allow_net_connect! if saved.delete(:webmock)
+          if saved.delete(:webmock)
+            (saved.delete(:webmock_was_enabled) ? WebMock.enable! : WebMock.disable!)
+          end
 
           ActionMailer::Base.perform_deliveries = saved.delete(:action_mailer_perform_deliveries) if saved.key?(:action_mailer_perform_deliveries)
 
