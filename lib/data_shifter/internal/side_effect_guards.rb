@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "uri"
+
 module DataShifter
   module Internal
     # Applies and restores side-effect guards during dry runs so that HTTP, mail,
@@ -18,6 +20,9 @@ module DataShifter
           saved = {}
           apply_guards(shift_class, saved)
           block.call
+        rescue webmock_net_connect_error => e
+          host = extract_host_from_webmock_message(e.message)
+          raise DataShifter::ExternalRequestNotAllowedError.new(attempted_host: host), cause: e
         ensure
           restore_guards(saved) if saved.any?
         end
@@ -58,6 +63,25 @@ module DataShifter
           per_shift = shift_class.respond_to?(:_allow_external_requests) ? shift_class._allow_external_requests : []
           global = DataShifter.config.allow_external_requests
           Array(per_shift) + Array(global)
+        end
+
+        def webmock_net_connect_error
+          return WebMock::NetConnectNotAllowedError if defined?(WebMock::NetConnectNotAllowedError)
+
+          Class.new(StandardError) # never matched when WebMock not loaded
+        end
+
+        def extract_host_from_webmock_message(message)
+          return nil unless message.is_a?(String)
+
+          # WebMock format: "Unregistered request: GET https://host/path with headers ..."
+          m = message.match(%r{Unregistered request: \w+ (https?://[^\s]+)})
+          return nil unless m
+
+          uri = URI.parse(m[1])
+          uri.host
+        rescue URI::InvalidURIError, ArgumentError
+          nil
         end
 
         def apply_action_mailer(saved)

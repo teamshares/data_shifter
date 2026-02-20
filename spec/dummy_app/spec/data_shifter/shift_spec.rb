@@ -758,12 +758,18 @@ RSpec.describe DataShifter::Shift do
 
   describe "side-effect guards (dry run)" do
     it "blocks HTTP to disallowed hosts during dry run" do
-      # Guard applies WebMock.disable_net_connect!; direct request must raise
+      # Guard applies WebMock.disable_net_connect!; we translate to ExternalRequestNotAllowedError
       expect do
         DataShifter::Internal::SideEffectGuards.with_guards(
           shift_class: Class.new(described_class)
         ) { Net::HTTP.get(URI("http://external.example.com/")) }
-      end.to raise_error(WebMock::NetConnectNotAllowedError)
+      end.to raise_error(DataShifter::ExternalRequestNotAllowedError) do |e|
+        expect(e.attempted_host).to eq("external.example.com")
+        expect(e.message).to include('allow_external_requests ["external.example.com"]')
+        expect(e.message).to include("DataShifter.config.allow_external_requests")
+        expect(e.message).not_to include("WebMock")
+        expect(e.cause).to be_a(WebMock::NetConnectNotAllowedError)
+      end
     end
 
     it "blocks HTTP when running a shift in dry run (integration)" do
@@ -772,7 +778,11 @@ RSpec.describe DataShifter::Shift do
         define_method(:collection) { User.limit(1) }
         define_method(:process_record) { |_record| Net::HTTP.get(URI("http://external.example.com/")) }
       end
-      expect { migration_class.call(dry_run: true) }.to raise_error(WebMock::NetConnectNotAllowedError)
+      result = migration_class.call(dry_run: true)
+      expect(result).not_to be_ok
+      expect(result.exception).to be_a(DataShifter::ExternalRequestNotAllowedError)
+      expect(result.exception.attempted_host).to eq("external.example.com")
+      expect(result.exception.message).not_to include("WebMock")
     end
 
     it "allows HTTP to hosts listed in allow_external_requests during dry run" do

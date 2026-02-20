@@ -85,7 +85,9 @@ module DataShifter
         io.puts ""
         io.puts "ERRORS:"
         errors.each do |err|
-          io.puts "  #{err[:record]}: #{err[:error]}"
+          lines = err[:error].to_s.split("\n")
+          io.puts "  #{err[:record]}: #{lines.first}"
+          lines.drop(1).each { |line| io.puts "    #{line}" }
           err[:backtrace]&.each { |line| io.puts "    #{line}" }
         end
       end

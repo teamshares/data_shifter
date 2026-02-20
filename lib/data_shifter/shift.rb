@@ -346,7 +346,8 @@ module DataShifter
       return if @errors.any?
 
       @stats[:failed] += 1
-      @errors << { record: "transaction", error: e.message, backtrace: e.backtrace&.first(3) }
+      error_text = _format_error(e)
+      @errors << { record: "transaction", error: error_text, backtrace: e.backtrace&.first(3) }
     end
 
     def _run_per_record(enum, total, &)
@@ -389,8 +390,9 @@ module DataShifter
     rescue StandardError => e
       @stats[:failed] += 1
       identifier = Internal::RecordUtils.identifier(record)
-      @errors << { record: identifier, error: e.message, backtrace: e.backtrace&.first(3) }
-      log "ERROR #{identifier}: #{e.message}"
+      error_text = _format_error(e)
+      @errors << { record: identifier, error: error_text, backtrace: e.backtrace&.first(3) }
+      _log_error(identifier, error_text)
 
       raise if _transaction_mode == :single
     ensure
@@ -404,6 +406,18 @@ module DataShifter
 
       @last_status_print = Time.current
       _print_progress
+    end
+
+    def _format_error(e)
+      msg = e.message.to_s
+      msg += "\n  Caused by: #{e.cause.class}: #{e.cause.message}" if e.respond_to?(:cause) && e.cause
+      msg
+    end
+
+    def _log_error(identifier, error_text)
+      lines = error_text.to_s.split("\n")
+      log "ERROR #{identifier}: #{lines.first}"
+      lines.drop(1).each { |line| log "    #{line}" }
     end
 
     # --- Output helpers ---
