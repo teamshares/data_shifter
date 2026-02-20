@@ -171,6 +171,39 @@ DataShifter defines one rake task per file in `lib/data_shifts/*.rb`.
 Shift files are **required only when the task runs** (tasks are defined up front; classes load lazily).
 The `description "..."` line is extracted from the file and used for `rake -T` output without loading the shift class.
 
+## Configuration
+
+Configure DataShifter globally in an initializer:
+
+```ruby
+# config/initializers/data_shifter.rb
+DataShifter.configure do |config|
+  # Hosts allowed for HTTP during dry run only (no effect in commit mode)
+  config.allow_external_requests = ["api.readonly.example.com"]
+
+  # Suppress repeated log messages during a shift run (default: true)
+  config.suppress_repeated_logs = true
+
+  # Max unique messages to track for deduplication (default: 1000)
+  config.repeated_log_cap = 1000
+
+  # Global default for progress bar visibility (default: true)
+  config.progress_enabled = true
+
+  # Default status print interval in seconds when ENV STATUS_INTERVAL is not set (default: nil)
+  config.status_interval_seconds = nil
+end
+```
+
+Per-shift overrides:
+
+```ruby
+class MyShift < DataShifter::Shift
+  progress false                # Disable progress bar for this shift
+  suppress_repeated_logs false  # Disable log deduplication for this shift
+end
+```
+
 ## Operational tips
 
 ### Safety checklist (recommended)
@@ -236,6 +269,7 @@ class SomeShift < DataShifter::Shift
 end
 ```
 
+
 ## Generator
 
 | Command | Generates |
@@ -280,39 +314,6 @@ RSpec.describe DataShifts::BackfillFoo do
     end.to change(Foo, :count).by(1)
     # Or for in-place updates: .to change { record.reload.bar }.from(nil).to("baz")
   end
-end
-```
-
-## Configuration
-
-Configure DataShifter globally in an initializer:
-
-```ruby
-# config/initializers/data_shifter.rb
-DataShifter.configure do |config|
-  # Hosts allowed for HTTP during dry run only (no effect in commit mode)
-  config.allow_external_requests = ["api.readonly.example.com"]
-
-  # Suppress repeated log messages during a shift run (default: true)
-  config.suppress_repeated_logs = true
-
-  # Max unique messages to track for deduplication (default: 1000)
-  config.repeated_log_cap = 1000
-
-  # Global default for progress bar visibility (default: true)
-  config.progress_enabled = true
-
-  # Default status print interval in seconds when ENV STATUS_INTERVAL is not set (default: nil)
-  config.status_interval_seconds = nil
-end
-```
-
-Per-shift overrides:
-
-```ruby
-class MyShift < DataShifter::Shift
-  progress false                # Disable progress bar for this shift
-  suppress_repeated_logs false  # Disable log deduplication for this shift
 end
 ```
 
