@@ -18,5 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - **ActiveJob**: Queue adapter set to `:test` for the duration of the dry run.
   - **Sidekiq**: `Sidekiq::Testing.fake!` for the duration of the dry run (only if `Sidekiq::Testing` is already loaded).
 - Dependency on `webmock` (>= 3.18) for dry-run HTTP blocking.
+- **skip! abort behavior**: `skip!` now terminates the current `process_record` (no `return` needed after calling it).
+- **Grouped skip reasons**: Skip reasons are grouped and the top 10 (by count) are shown in the summary and status output instead of logging each skip inline.
 
 ## [0.1.0] - Initial release

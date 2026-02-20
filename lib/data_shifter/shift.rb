@@ -68,6 +68,11 @@ module DataShifter
     class_attribute :_allow_external_requests, default: [], instance_accessor: false
     class_attribute :_suppress_repeated_logs, default: nil, instance_accessor: false
 
+    # Internal exception used by skip! to abort the current process_record.
+    # Rescued in _process_one; not propagated.
+    class SkipRecord < StandardError; end
+    private_constant :SkipRecord
+
     class << self
       def description(text = nil)
         if text.nil?
@@ -152,8 +157,9 @@ module DataShifter
 
     def skip!(reason = nil)
       @stats[:skipped] += 1
-      @stats[:succeeded] -= 1
-      log "  SKIP: #{reason}" if reason
+      key = reason.to_s.presence || "(no reason given)"
+      @skip_reasons[key] += 1
+      raise SkipRecord
     end
 
     def log(message)
@@ -228,6 +234,7 @@ module DataShifter
     def _reset_tracking
       @stats = { processed: 0, succeeded: 0, failed: 0, skipped: 0 }
       @errors = []
+      @skip_reasons = Hash.new(0)
       @start_time = Time.current
       @last_status_print = @start_time
       @_data_shift_interrupted = false
@@ -239,6 +246,7 @@ module DataShifter
         io: $stdout,
         stats: @stats,
         errors: @errors,
+        skip_reasons: @skip_reasons,
         start_time: @start_time,
         dry_run: dry_run?,
         transaction_mode: _transaction_mode,
@@ -265,6 +273,7 @@ module DataShifter
         io: $stdout,
         stats: @stats,
         errors: @errors,
+        skip_reasons: @skip_reasons,
         start_time: @start_time,
         status_interval: Internal::Env.status_interval_seconds,
       )
@@ -383,6 +392,9 @@ module DataShifter
       yield
       @stats[:succeeded] += 1
       @_last_successful_id = record.id if record.respond_to?(:id)
+    rescue SkipRecord
+      # skip! already incremented @stats[:skipped] and recorded the reason; just continue
+      nil
     rescue StandardError => e
       @stats[:failed] += 1
       identifier = Internal::RecordUtils.identifier(record)

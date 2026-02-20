@@ -1,6 +1,6 @@
 # DataShifter
 
-Rake-backed data migrations (“shifts”) for Rails apps, with **dry run by default**, progress output, and a consistent summary. Define shift classes in `lib/data_shifts/*.rb`; run them as `rake data:shift:<task_name>`.
+Rake-backed data migrations ("shifts") for Rails apps, with **dry run by default**, progress output, and a consistent summary. Define shift classes in `lib/data_shifts/*.rb`; run them as `rake data:shift:<task_name>`.
 
 ## Installation
 
@@ -75,7 +75,7 @@ In **dry run** mode, DataShifter automatically blocks or fakes these side effect
 | **ActiveJob**    | Queue adapter set to `:test` (restored after run). |
 | **Sidekiq**      | `Sidekiq::Testing.fake!` (restored with `disable!` after run). Only applied if `Sidekiq::Testing` is already loaded. |
 
-**Guarding other side effects:** For anything we don’t cover (e.g. another service, or allowed HTTP that mutates), use e.g. `return if dry_run?` in your shift. DB changes are always rolled back in dry run; only non-DB side effects need this.
+**Guarding other side effects:** For anything we don't cover (e.g. another service, or allowed HTTP that mutates), use e.g. `return if dry_run?` in your shift. DB changes are always rolled back in dry run; only non-DB side effects need this.
 
 To allow HTTP to specific hosts during dry run (e.g. a migration that must call an API to compute values), use the per-shift DSL or global config (NOTE: it is your responsibility to ensure you only make readonly requests in `dry_run?` mode):
 
@@ -156,7 +156,7 @@ CONTINUE_FROM=123 COMMIT=1 rake data:shift:backfill_foo
 Notes:
 
 - Only supported for `ActiveRecord::Relation` collections (Array-based collections—like those from `find_exactly!`—cannot be resumed).
-- The filter is `primary_key > CONTINUE_FROM`, so it’s only useful with monotonically increasing primary keys (e.g. `find_each`'s default behavior).
+- The filter is `primary_key > CONTINUE_FROM`, so it's only useful with monotonically increasing primary keys (e.g. `find_each`'s default behavior).
 
 ## How shift files map to rake tasks
 
@@ -177,7 +177,7 @@ The `description "..."` line is extracted from the file and used for `rake -T` o
 
 - **Start with a dry run**: run the task once with no environment variables set, confirm logs and summary look right, then re-run with `COMMIT=1`.
 - **Make shifts idempotent**: structure `process_record` so re-running is safe (for example, update only when the target column is `NULL`, or compute the same derived value deterministically).
-- **Guard side effects we don’t auto-block**: use `return if dry_run?` for any side effect not covered by Automatic side-effect guards (see above).
+- **Guard side effects we don't auto-block**: use `return if dry_run?` for any side effect not covered by Automatic side-effect guards (see above).
 
 ### Choosing a transaction mode (behavior + guidance)
 
@@ -214,16 +214,18 @@ def process_record(buyback)
 end
 ```
 
-### `skip!` (count but don’t update)
+### `skip!` (count but don't update)
 
-Mark a record as skipped (it will increment “Skipped” in the summary):
+Mark a record as skipped. Calling `skip!` terminates the current `process_record` immediately (no `return` needed). The record is counted as "Skipped" in the summary.
 
 ```ruby
 def process_record(record)
   skip!("already done") if record.foo.present?
-  record.update!(foo: value)
+  record.update!(foo: value)  # not executed if skipped
 end
 ```
+
+Skip reasons are grouped: the summary shows the top 10 reasons by count (e.g. `"already done" (42), "not eligible" (3)`) instead of logging each skip inline. This keeps the progress bar clean.
 
 ### Throttling and disabling the progress bar
 

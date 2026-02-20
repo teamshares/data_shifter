@@ -11,6 +11,8 @@ module DataShifter
         none: "none",
       }.freeze
 
+      SKIP_REASONS_DISPLAY_LIMIT = 10
+
       module_function
 
       def print_header(io:, shift_class:, total:, label:, dry_run:, transaction_mode:, status_interval:)
@@ -30,7 +32,7 @@ module DataShifter
         io.puts ""
       end
 
-      def print_summary(io:, stats:, errors:, start_time:, dry_run:, transaction_mode:, interrupted:, task_name:, last_successful_id:)
+      def print_summary(io:, stats:, errors:, start_time:, dry_run:, transaction_mode:, interrupted:, task_name:, last_successful_id:, skip_reasons: {})
         return unless start_time
 
         elapsed = (Time.current - start_time).round(1)
@@ -43,6 +45,7 @@ module DataShifter
         io.puts "Succeeded:   #{stats[:succeeded]}"
         io.puts "Failed:      #{stats[:failed]}"
         io.puts "Skipped:     #{stats[:skipped]}"
+        print_skip_reasons(io:, skip_reasons:) if skip_reasons.any?
 
         print_errors(io:, errors:) if errors.any?
         print_interrupt_warning(io:, transaction_mode:, dry_run:) if interrupted
@@ -52,7 +55,7 @@ module DataShifter
         io.puts "=" * 60
       end
 
-      def print_progress(io:, stats:, errors:, start_time:, status_interval:)
+      def print_progress(io:, stats:, errors:, start_time:, status_interval:, skip_reasons: {})
         return unless start_time
 
         elapsed = (Time.current - start_time).round(1)
@@ -74,6 +77,7 @@ module DataShifter
         io.puts "Succeeded:   #{stats[:succeeded]}"
         io.puts "Failed:      #{stats[:failed]}"
         io.puts "Skipped:     #{stats[:skipped]}"
+        print_skip_reasons(io:, skip_reasons:) if skip_reasons.any?
 
         print_errors(io:, errors:) if errors.any?
 
@@ -146,6 +150,14 @@ module DataShifter
         elsif status_tips.any?
           status_tips.join(" or ")
         end
+      end
+
+      def print_skip_reasons(io:, skip_reasons:)
+        return if skip_reasons.empty?
+
+        top = skip_reasons.sort_by { |_reason, count| -count }.first(SKIP_REASONS_DISPLAY_LIMIT)
+        formatted = top.map { |reason, count| "\"#{reason}\" (#{count})" }.join(", ")
+        io.puts "             #{formatted}"
       end
     end
   end

@@ -270,10 +270,7 @@ RSpec.describe DataShifter::Shift do
 
         define_method(:collection) { recs }
         define_method(:process_record) do |record|
-          if record.id == skip_id
-            skip!("not eligible")
-            return
-          end
+          skip!("not eligible") if record.id == skip_id
 
           record.update!(time_zone: "Pacific Time (US & Canada)")
         end
@@ -282,11 +279,24 @@ RSpec.describe DataShifter::Shift do
 
     it { is_expected.to be_ok }
 
-    it "skips the record and processes others" do
+    it "skips the record and processes others (skip! aborts process_record)" do
       result
       expect(record_a.reload.time_zone).to eq("Pacific Time (US & Canada)")
       expect(record_b.reload.time_zone).to eq("Eastern Time (US & Canada)")
       expect(record_c.reload.time_zone).to eq("Pacific Time (US & Canada)")
+    end
+
+    it "does not log skip reasons inline" do
+      expect($stdout).not_to receive(:puts).with(/SKIP:/)
+      allow($stdout).to receive(:puts)
+      result
+    end
+
+    it "groups skip reasons in the summary" do
+      output = StringIO.new
+      allow($stdout).to receive(:puts) { |msg| output.puts(msg) }
+      result
+      expect(output.string).to include('"not eligible" (1)')
     end
   end
 
