@@ -2,7 +2,6 @@
 
 ENV["RAILS_ENV"] ||= "test"
 ENV["RACK_ENV"] ||= "test"
-ENV["DATA_SHIFTER_NO_TX_COUNTDOWN"] ||= "0"
 
 require "webmock/rspec"
 require "sidekiq/testing"

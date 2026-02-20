@@ -8,7 +8,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- Loud warning and 5-second countdown when running with `transaction false` / `:none`, reminding that dry run only applies if writes are guarded with `dry_run?`. Use `DATA_SHIFTER_NO_TX_COUNTDOWN=0` to skip the countdown in CI/scripts.
 - **Configuration object**: New `DataShifter.configure` block for global settings. Replaces `DataShifter.dry_run_allow_net_connect` with `DataShifter.config.allow_external_requests`.
 - **Log deduplication**: Repeated log messages are now suppressed during shift runs (default: on). First occurrence logs normally; subsequent occurrences are counted and a summary is printed at the end. Configure globally with `config.suppress_repeated_logs` and `config.repeated_log_cap` (default 1000). Override per-shift with `suppress_repeated_logs false`.
 - **Global progress bar default**: `config.progress_enabled` (default `true`) sets the default for all shifts. Per-shift `progress true/false` still overrides.

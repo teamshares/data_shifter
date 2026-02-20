@@ -257,30 +257,6 @@ RSpec.describe DataShifter::Shift do
       end
     end
 
-    describe "no-transaction warning" do
-      it "prints a loud warning before running" do
-        expect($stdout).to receive(:puts).with(/WITHOUT automatic transactions/).at_least(:once)
-        expect($stdout).to receive(:puts).with(/dry_run\?/).at_least(:once)
-        allow($stdout).to receive(:puts)
-        migration_class.call(dry_run: false)
-      end
-
-      it "includes countdown when DATA_SHIFTER_NO_TX_COUNTDOWN is > 0" do
-        allow(DataShifter::Internal::Env).to receive(:no_transaction_countdown_seconds).and_return(2)
-        expect($stdout).to receive(:puts).with("Continuing in 2...").once
-        expect($stdout).to receive(:puts).with("Continuing in 1...").once
-        allow($stdout).to receive(:puts)
-        allow_any_instance_of(Object).to receive(:sleep)
-        migration_class.call(dry_run: false)
-      end
-
-      it "skips countdown when DATA_SHIFTER_NO_TX_COUNTDOWN is 0" do
-        allow(DataShifter::Internal::Env).to receive(:no_transaction_countdown_seconds).and_return(0)
-        expect($stdout).not_to receive(:puts).with(/Continuing in/)
-        allow($stdout).to receive(:puts)
-        migration_class.call(dry_run: false)
-      end
-    end
   end
 
   describe "skip! helper" do
