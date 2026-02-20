@@ -45,7 +45,7 @@ Style/DoubleNegation:
   Enabled: false
 
 Naming/MethodParameterName:
-  AllowedNames: e, on, id, if, as, io
+  AllowedNames: e, on, id, if, as, io, to
 
 Metrics/BlockLength:
   Max: 50

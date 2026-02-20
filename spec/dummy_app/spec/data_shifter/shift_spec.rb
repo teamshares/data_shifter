@@ -251,36 +251,12 @@ RSpec.describe DataShifter::Shift do
         end
       end
 
-      it "does not roll back (no transaction); changes persist" do
+      it "still rolls back (dry run always wrapped in transaction)" do
         migration_class.call(dry_run: true)
-        expect(records.map { |r| r.reload.time_zone }).to all(eq("Pacific Time (US & Canada)"))
+        expect(records.map { |r| r.reload.time_zone }).to all(eq("Eastern Time (US & Canada)"))
       end
     end
 
-    describe "no-transaction warning" do
-      it "prints a loud warning before running" do
-        expect($stdout).to receive(:puts).with(/WITHOUT automatic transactions/).at_least(:once)
-        expect($stdout).to receive(:puts).with(/dry_run\?/).at_least(:once)
-        allow($stdout).to receive(:puts)
-        migration_class.call(dry_run: false)
-      end
-
-      it "includes countdown when DATA_SHIFTER_NO_TX_COUNTDOWN is > 0" do
-        allow(DataShifter::Internal::Env).to receive(:no_transaction_countdown_seconds).and_return(2)
-        expect($stdout).to receive(:puts).with("Continuing in 2...").once
-        expect($stdout).to receive(:puts).with("Continuing in 1...").once
-        allow($stdout).to receive(:puts)
-        allow_any_instance_of(Object).to receive(:sleep)
-        migration_class.call(dry_run: false)
-      end
-
-      it "skips countdown when DATA_SHIFTER_NO_TX_COUNTDOWN is 0" do
-        allow(DataShifter::Internal::Env).to receive(:no_transaction_countdown_seconds).and_return(0)
-        expect($stdout).not_to receive(:puts).with(/Continuing in/)
-        allow($stdout).to receive(:puts)
-        migration_class.call(dry_run: false)
-      end
-    end
   end
 
   describe "skip! helper" do
@@ -294,10 +270,7 @@ RSpec.describe DataShifter::Shift do
 
         define_method(:collection) { recs }
         define_method(:process_record) do |record|
-          if record.id == skip_id
-            skip!("not eligible")
-            return
-          end
+          skip!("not eligible") if record.id == skip_id
 
           record.update!(time_zone: "Pacific Time (US & Canada)")
         end
@@ -306,11 +279,24 @@ RSpec.describe DataShifter::Shift do
 
     it { is_expected.to be_ok }
 
-    it "skips the record and processes others" do
+    it "skips the record and processes others (skip! aborts process_record)" do
       result
       expect(record_a.reload.time_zone).to eq("Pacific Time (US & Canada)")
       expect(record_b.reload.time_zone).to eq("Eastern Time (US & Canada)")
       expect(record_c.reload.time_zone).to eq("Pacific Time (US & Canada)")
+    end
+
+    it "does not log skip reasons inline" do
+      expect($stdout).not_to receive(:puts).with(/SKIP:/)
+      allow($stdout).to receive(:puts)
+      result
+    end
+
+    it "groups skip reasons in the summary" do
+      output = StringIO.new
+      allow($stdout).to receive(:puts) { |msg| output.puts(msg) }
+      result
+      expect(output.string).to include('"not eligible" (1)')
     end
   end
 
@@ -544,7 +530,7 @@ RSpec.describe DataShifter::Shift do
         define_method(:process_record) { |_record| nil }
       end
 
-      expect(klass.progress).to be true
+      expect(klass.progress).to be_nil
 
       klass.progress false
       expect(klass.progress).to be false
@@ -753,6 +739,164 @@ RSpec.describe DataShifter::Shift do
         expect($stdout).not_to receive(:puts).with(/CONTINUE_FROM/)
         migration_class.call(dry_run: false)
       end
+    end
+  end
+
+  describe "side-effect guards (dry run)" do
+    it "blocks HTTP to disallowed hosts during dry run" do
+      # Guard applies WebMock.disable_net_connect!; we translate to ExternalRequestNotAllowedError
+      expect do
+        DataShifter::Internal::SideEffectGuards.with_guards(
+          shift_class: Class.new(described_class)
+        ) { Net::HTTP.get(URI("http://external.example.com/")) }
+      end.to raise_error(DataShifter::ExternalRequestNotAllowedError) do |e|
+        expect(e.attempted_host).to eq("external.example.com")
+        expect(e.message).to include('allow_external_requests ["external.example.com"]')
+        expect(e.message).to include("DataShifter.config.allow_external_requests")
+        expect(e.message).not_to include("WebMock")
+        expect(e.cause).to be_a(WebMock::NetConnectNotAllowedError)
+      end
+    end
+
+    it "blocks HTTP when running a shift in dry run (integration)" do
+      record_a # ensure at least one user exists
+      migration_class = Class.new(described_class) do
+        define_method(:collection) { User.limit(1) }
+        define_method(:process_record) { |_record| Net::HTTP.get(URI("http://external.example.com/")) }
+      end
+      result = migration_class.call(dry_run: true)
+      expect(result).not_to be_ok
+      expect(result.exception).to be_a(DataShifter::ExternalRequestNotAllowedError)
+      expect(result.exception.attempted_host).to eq("external.example.com")
+      expect(result.exception.message).not_to include("WebMock")
+    end
+
+    it "allows HTTP to hosts listed in allow_external_requests during dry run" do
+      record_a # ensure at least one user exists
+      stub_request(:get, "http://allowed.example.com/").to_return(status: 200, body: "ok")
+      migration_class = Class.new(described_class) do
+        allow_external_requests ["allowed.example.com"]
+
+        define_method(:collection) { User.limit(1) }
+        define_method(:process_record) { |_record| Net::HTTP.get(URI("http://allowed.example.com/")) }
+      end
+      result = migration_class.call(dry_run: true)
+      expect(result).to be_ok
+    end
+
+    it "does not block HTTP when commit (dry_run: false)" do
+      stub_request(:get, "http://example.com/").to_return(status: 200)
+      migration_class = Class.new(described_class) do
+        define_method(:collection) { User.limit(1) }
+        define_method(:process_record) { |_record| Net::HTTP.get(URI("http://example.com/")) }
+      end
+      result = migration_class.call(dry_run: false)
+      expect(result).to be_ok
+    end
+
+    it "restores WebMock after dry run to previous state (e.g. enabled in specs)" do
+      migration_class = Class.new(described_class) do
+        define_method(:collection) { [] }
+        define_method(:process_record) { |_record| nil }
+      end
+      migration_class.call(dry_run: true)
+      # Restored to enabled (spec env), so stubs apply again
+      stub_request(:get, "http://after.example.com/").to_return(status: 200)
+      expect { Net::HTTP.get(URI("http://after.example.com/")) }.not_to raise_error
+    end
+
+    context "ActionMailer guard" do
+      it "sets perform_deliveries to false during dry run and restores after" do
+        original = ActionMailer::Base.perform_deliveries
+        value_during_block = nil
+        DataShifter::Internal::SideEffectGuards.with_guards(shift_class: Class.new(described_class)) do
+          value_during_block = ActionMailer::Base.perform_deliveries
+        end
+        expect(value_during_block).to eq(false)
+        expect(ActionMailer::Base.perform_deliveries).to eq(original)
+      end
+    end
+
+    context "ActiveJob guard" do
+      it "uses test queue adapter during dry run and restores after" do
+        original_adapter = ActiveJob::Base.queue_adapter
+        adapter_during_block = nil
+        DataShifter::Internal::SideEffectGuards.with_guards(shift_class: Class.new(described_class)) do
+          adapter_during_block = ActiveJob::Base.queue_adapter
+        end
+        expect(adapter_during_block).to be_a(ActiveJob::QueueAdapters::TestAdapter)
+        expect(ActiveJob::Base.queue_adapter).to eq(original_adapter)
+      end
+    end
+
+    context "Sidekiq guard" do
+      it "calls fake! during dry run and disable! on restore" do
+        expect(Sidekiq::Testing).to receive(:fake!).and_call_original
+        expect(Sidekiq::Testing).to receive(:disable!).and_call_original
+        DataShifter::Internal::SideEffectGuards.with_guards(shift_class: Class.new(described_class)) do
+          expect(Sidekiq::Testing.fake?).to be true
+        end
+      end
+    end
+  end
+
+  describe ".allow_external_requests" do
+    it "stores allowed hosts for dry run" do
+      klass = Class.new(described_class) do
+        allow_external_requests ["api.example.com", %r{\.readonly\.local\z}]
+      end
+      expect(klass._allow_external_requests).to eq(["api.example.com", %r{\.readonly\.local\z}])
+    end
+  end
+
+  describe ".suppress_repeated_logs" do
+    it "stores boolean for per-shift override" do
+      klass = Class.new(described_class) do
+        suppress_repeated_logs false
+      end
+      expect(klass._suppress_repeated_logs).to be false
+    end
+
+    it "defaults to nil (use config)" do
+      klass = Class.new(described_class)
+      expect(klass._suppress_repeated_logs).to be_nil
+    end
+  end
+
+  describe "progress from config" do
+    let(:original_progress_enabled) { DataShifter.config.progress_enabled }
+
+    before { original_progress_enabled }
+
+    after { DataShifter.config.progress_enabled = original_progress_enabled }
+
+    it "uses config.progress_enabled when _progress_enabled is nil" do
+      DataShifter.config.progress_enabled = false
+      items = [Struct.new(:id).new(1), Struct.new(:id).new(2)]
+      klass = Class.new(described_class) do
+        define_singleton_method(:items) { items }
+        define_method(:collection) { self.class.items }
+        define_method(:process_record) { |_| nil }
+      end
+      expect(klass._progress_enabled).to be_nil
+
+      expect(DataShifter::Internal::ProgressBar).to receive(:create).with(hash_including(enabled: false)).and_call_original
+      klass.call(dry_run: true)
+    end
+
+    it "uses per-shift progress setting when explicitly set" do
+      DataShifter.config.progress_enabled = true
+      items = [Struct.new(:id).new(1), Struct.new(:id).new(2)]
+      klass = Class.new(described_class) do
+        progress false
+        define_singleton_method(:items) { items }
+        define_method(:collection) { self.class.items }
+        define_method(:process_record) { |_| nil }
+      end
+
+      expect(DataShifter::Internal::ProgressBar).to receive(:create).with(hash_including(enabled: false)).and_call_original
+      result = klass.call(dry_run: true)
+      expect(result).to be_ok
     end
   end
 

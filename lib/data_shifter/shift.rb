@@ -7,6 +7,8 @@ require_relative "internal/output"
 require_relative "internal/signal_handler"
 require_relative "internal/record_utils"
 require_relative "internal/progress_bar"
+require_relative "internal/side_effect_guards"
+require_relative "internal/log_deduplicator"
 
 # Base class for data shifts. Dry-run by default, progress bars, transaction modes, consistent summaries.
 #
@@ -30,15 +32,15 @@ require_relative "internal/progress_bar"
 # Running:
 #   - `rake data:shift:backfill_foo` (dry run by default)
 #   - `COMMIT=1 rake data:shift:backfill_foo` (apply changes)
-#   - Or call directly: `MyShift.call(dry_run: false)` (Axn semantics) - but note default location not auto-loaded
+#   - Or technically can call directly: `MyShift.call(dry_run: false)` (Axn semantics) - BUT:
+#     NOTES: default location not auto-loaded, and in general it is strongly recommended to use the rake task.
 #
 # Transaction modes (set at class level with `transaction`):
 #   - `transaction :single` (default): one transaction for the whole run (all-or-nothing).
 #   - `transaction :per_record`: each record in its own transaction.
-#   - `transaction false`: no automatic transactions; guard writes with `return if dry_run?`.
+#   - `transaction false`: no automatic transaction in commit mode; in dry run we still wrap in a rollback transaction.
 #
-# Dry run: In `:single` and `:per_record`, dry_run rolls back DB changes automatically.
-# Non-DB side effects are not rolled back; guard with `return if dry_run?` / `return unless dry_run?`.
+# Dry run: DB changes are always rolled back (we wrap in a transaction and raise Rollback). Guard non-DB side effects with `return if dry_run?`.
 #
 # Fixed list of IDs (fail fast): Use find_exactly!(Model, [id1, id2, ...]) in `collection`.
 # Large collections: Return an ActiveRecord::Relation and iteration uses `find_each`.
@@ -51,16 +53,25 @@ module DataShifter
 
     log_calls false if respond_to?(:log_calls)
 
+    around :_with_log_deduplication
+    around :_with_side_effect_guards
     around :_with_transaction_for_dry_run
     before :_reset_tracking
     on_success :_print_summary
     on_error :_print_summary
 
     class_attribute :_transaction_mode, default: :single
-    class_attribute :_progress_enabled, default: true
+    class_attribute :_progress_enabled, default: nil
     class_attribute :_description, default: nil
     class_attribute :_task_name, default: nil
     class_attribute :_throttle_interval, default: nil
+    class_attribute :_allow_external_requests, default: [], instance_accessor: false
+    class_attribute :_suppress_repeated_logs, default: nil, instance_accessor: false
+
+    # Internal exception used by skip! to abort the current process_record.
+    # Rescued in _process_one; not propagated.
+    class SkipRecord < StandardError; end
+    private_constant :SkipRecord
 
     class << self
       def description(text = nil)
@@ -104,6 +115,19 @@ module DataShifter
         self._throttle_interval = interval
       end
 
+      # Allow these hosts (or regexes) for HTTP during dry run only. Combines with DataShifter.config.allow_external_requests.
+      # Has no effect in commit mode — HTTP is unrestricted when dry_run is false.
+      # Example: allow_external_requests ["api.readonly.example.com", %r{\.internal\.company\z}]
+      def allow_external_requests(hosts)
+        self._allow_external_requests = Array(hosts)
+      end
+
+      # Enable/disable log deduplication for this shift. Overrides DataShifter.config.suppress_repeated_logs.
+      # Example: suppress_repeated_logs false
+      def suppress_repeated_logs(enabled)
+        self._suppress_repeated_logs = !!enabled
+      end
+
       def run!
         dry_run = Internal::Env.dry_run?
         result = call(dry_run:)
@@ -133,8 +157,9 @@ module DataShifter
 
     def skip!(reason = nil)
       @stats[:skipped] += 1
-      @stats[:succeeded] -= 1
-      log "  SKIP: #{reason}" if reason
+      key = reason.to_s.presence || "(no reason given)"
+      @skip_reasons[key] += 1
+      raise SkipRecord
     end
 
     def log(message)
@@ -145,28 +170,61 @@ module DataShifter
 
     # --- Axn lifecycle hooks ---
 
-    def _with_transaction_for_dry_run(chain)
-      if _transaction_mode == :none
-        Internal::Output.warn_no_transaction_and_countdown(
-          io: $stdout,
-          seconds: Internal::Env.no_transaction_countdown_seconds,
-        )
+    def _with_log_deduplication(chain)
+      effective = self.class._suppress_repeated_logs.nil? ? DataShifter.config.suppress_repeated_logs : self.class._suppress_repeated_logs
+      unless effective && defined?(::Rails) && ::Rails.respond_to?(:logger) && ::Rails.logger
         chain.call
         return
       end
 
-      if _transaction_mode == :single
-        ActiveRecord::Base.transaction do
+      original_logger = ::Rails.logger
+      original_ar_logger = ::ActiveRecord::Base.logger
+
+      Internal::LogDeduplicator.with_deduplicating_logger(original_logger, cap: DataShifter.config.repeated_log_cap) do |proxy|
+        ::Rails.logger = proxy
+        ::ActiveRecord::Base.logger = proxy
+        chain.call
+      end
+    ensure
+      if effective && defined?(::Rails) && ::Rails.respond_to?(:logger=)
+        ::Rails.logger = original_logger
+        ::ActiveRecord::Base.logger = original_ar_logger
+      end
+    end
+
+    def _with_side_effect_guards(chain)
+      if dry_run?
+        Internal::SideEffectGuards.with_guards(shift_class: self.class) { chain.call }
+      else
+        chain.call
+      end
+    end
+
+    def _with_transaction_for_dry_run(chain)
+      if _transaction_mode == :none
+        if dry_run?
+          ::ActiveRecord::Base.transaction do
+            chain.call
+            raise ::ActiveRecord::Rollback
+          end
+        else
           chain.call
-          raise ActiveRecord::Rollback if dry_run?
+        end
+        return
+      end
+
+      if _transaction_mode == :single
+        ::ActiveRecord::Base.transaction do
+          chain.call
+          raise ::ActiveRecord::Rollback if dry_run?
         end
         return
       end
 
       if dry_run?
-        ActiveRecord::Base.transaction do
+        ::ActiveRecord::Base.transaction do
           chain.call
-          raise ActiveRecord::Rollback
+          raise ::ActiveRecord::Rollback
         end
       else
         chain.call
@@ -176,6 +234,7 @@ module DataShifter
     def _reset_tracking
       @stats = { processed: 0, succeeded: 0, failed: 0, skipped: 0 }
       @errors = []
+      @skip_reasons = Hash.new(0)
       @start_time = Time.current
       @last_status_print = @start_time
       @_data_shift_interrupted = false
@@ -187,6 +246,7 @@ module DataShifter
         io: $stdout,
         stats: @stats,
         errors: @errors,
+        skip_reasons: @skip_reasons,
         start_time: @start_time,
         dry_run: dry_run?,
         transaction_mode: _transaction_mode,
@@ -213,6 +273,7 @@ module DataShifter
         io: $stdout,
         stats: @stats,
         errors: @errors,
+        skip_reasons: @skip_reasons,
         start_time: @start_time,
         status_interval: Internal::Env.status_interval_seconds,
       )
@@ -279,18 +340,19 @@ module DataShifter
     # --- Transaction execution strategies ---
 
     def _run_in_single_transaction(enum, total, &block)
-      ActiveRecord::Base.transaction do
+      ::ActiveRecord::Base.transaction do
         _iterate(enum, total, &block)
         if dry_run?
           log "\nDry run complete — rolling back all changes."
-          raise ActiveRecord::Rollback
+          raise ::ActiveRecord::Rollback
         end
       end
     rescue StandardError => e
       return if @errors.any?
 
       @stats[:failed] += 1
-      @errors << { record: "transaction", error: e.message, backtrace: e.backtrace&.first(3) }
+      error_text = _format_error(e)
+      @errors << { record: "transaction", error: error_text, backtrace: e.backtrace&.first(3) }
     end
 
     def _run_per_record(enum, total, &)
@@ -298,7 +360,7 @@ module DataShifter
         if dry_run?
           yield record
         else
-          ActiveRecord::Base.transaction { yield record }
+          ::ActiveRecord::Base.transaction { yield record }
         end
       end
     end
@@ -308,7 +370,8 @@ module DataShifter
     end
 
     def _iterate(enum, total)
-      bar = Internal::ProgressBar.create(total:, dry_run: dry_run?, enabled: _progress_enabled)
+      progress_on = _progress_enabled.nil? ? DataShifter.config.progress_enabled : _progress_enabled
+      bar = Internal::ProgressBar.create(total:, dry_run: dry_run?, enabled: progress_on)
       if enum.respond_to?(:find_each)
         enum.find_each do |record|
           _process_one(record) { yield record }
@@ -329,11 +392,15 @@ module DataShifter
       yield
       @stats[:succeeded] += 1
       @_last_successful_id = record.id if record.respond_to?(:id)
+    rescue SkipRecord
+      # skip! already incremented @stats[:skipped] and recorded the reason; just continue
+      nil
     rescue StandardError => e
       @stats[:failed] += 1
       identifier = Internal::RecordUtils.identifier(record)
-      @errors << { record: identifier, error: e.message, backtrace: e.backtrace&.first(3) }
-      log "ERROR #{identifier}: #{e.message}"
+      error_text = _format_error(e)
+      @errors << { record: identifier, error: error_text, backtrace: e.backtrace&.first(3) }
+      _log_error(identifier, error_text)
 
       raise if _transaction_mode == :single
     ensure
@@ -347,6 +414,18 @@ module DataShifter
 
       @last_status_print = Time.current
       _print_progress
+    end
+
+    def _format_error(e)
+      msg = e.message.to_s
+      msg += "\n  Caused by: #{e.cause.class}: #{e.cause.message}" if e.respond_to?(:cause) && e.cause
+      msg
+    end
+
+    def _log_error(identifier, error_text)
+      lines = error_text.to_s.split("\n")
+      log "ERROR #{identifier}: #{lines.first}"
+      lines.drop(1).each { |line| log "    #{line}" }
     end
 
     # --- Output helpers ---

@@ -1,6 +1,6 @@
 # DataShifter
 
-Rake-backed data migrations (“shifts”) for Rails apps, with **dry run by default**, progress output, and a consistent summary. Define shift classes in `lib/data_shifts/*.rb`; run them as `rake data:shift:<task_name>`.
+Rake-backed data migrations ("shifts") for Rails apps, with **dry run by default**, progress output, and a consistent summary. Define shift classes in `lib/data_shifts/*.rb`; run them as `rake data:shift:<task_name>`.
 
 ## Installation
 
@@ -21,7 +21,7 @@ Generate a shift (optionally scoped to a model):
 
 ```bash
 bin/rails generate data_shift backfill_foo
-bin/rails generate data_shift backfill_users --model=User
+bin/rails generate data_shift backfill_users --model User
 ```
 
 Add  your logic to the generated file in `lib/data_shifts/`.
@@ -32,19 +32,6 @@ Run it:
 rake data:shift:backfill_foo
 COMMIT=1 rake data:shift:backfill_foo
 ```
-
-## How shift files map to rake tasks
-
-DataShifter defines one rake task per file in `lib/data_shifts/*.rb`.
-
-- **Task name**: derived from the filename with any leading digits removed.
-  - `20260201120000_backfill_foo.rb` → `data:shift:backfill_foo` (leading `<digits>_` prefix is stripped)
-  - `backfill_foo.rb` → `data:shift:backfill_foo`
-- **Class name**: task name camelized, inside the `DataShifts` module.
-  - `backfill_foo` → `DataShifts::BackfillFoo`
-
-Shift files are **required only when the task runs** (tasks are defined up front; classes load lazily).
-The `description "..."` line is extracted from the file and used for `rake -T` output without loading the shift class.
 
 ## Defining a shift
 
@@ -77,7 +64,39 @@ Shifts run in **dry run** mode by default. In the automatic transaction modes (`
 - **Commit**: `COMMIT=1 rake data:shift:backfill_foo`
   - (`COMMIT=true` or `DRY_RUN=false` also commit)
 
-Non-DB side effects (API calls, emails, enqueued jobs, etc.) obviously cannot be automatically rolled back, so guard them with e.g. `return if dry_run?`.
+### Automatic side-effect guards (dry run)
+
+In **dry run** mode, DataShifter automatically blocks or fakes these side effects so unguarded code is less likely to hit the network or send mail/jobs:
+
+| Service      | Behavior in dry run |
+|-------------|----------------------|
+| **HTTP**    | Blocked via WebMock (`disable_net_connect!`). Allow specific hosts with `allow_external_requests [...]` or `DataShifter.config.allow_external_requests`. |
+| **ActionMailer** | `perform_deliveries = false` (restored after run). |
+| **ActiveJob**    | Queue adapter set to `:test` (restored after run). |
+| **Sidekiq**      | `Sidekiq::Testing.fake!` (restored with `disable!` after run). Only applied if `Sidekiq::Testing` is already loaded. |
+
+**Guarding other side effects:** For anything we don't cover (e.g. another service, or allowed HTTP that mutates), use e.g. `return if dry_run?` in your shift. DB changes are always rolled back in dry run; only non-DB side effects need this.
+
+To allow HTTP to specific hosts during dry run (e.g. a migration that must call an API to compute values), use the per-shift DSL or global config (NOTE: it is your responsibility to ensure you only make readonly requests in `dry_run?` mode):
+
+```ruby
+# Per shift
+module DataShifts
+  class BackfillFromApi < DataShifter::Shift
+    allow_external_requests ["api.readonly.example.com", %r{\.internal\.company\z}]
+    # ...
+  end
+end
+```
+
+```ruby
+# Global (e.g. in config/initializers/data_shifter.rb)
+DataShifter.configure do |config|
+  config.allow_external_requests = ["api.readonly.example.com"]
+end
+```
+
+Allowed hosts are combined (per-shift + global). Restore (WebMock, mail, jobs) happens in an `ensure` so later code and other specs are unaffected.
 
 ## Transaction modes
 
@@ -85,7 +104,7 @@ Set the transaction mode at the class level:
 
 - **`transaction :single` / `transaction true` (default)**: one DB transaction for the entire run; dry run rolls back at the end; a record error aborts the run.
 - **`transaction :per_record`**: in commit mode, each record runs in its own transaction (errors are collected and the run continues); in dry run, the run is wrapped in a single rollback transaction.
-- **`transaction false` / `transaction :none`**: CAUTION: NOT RECOMMENDED. No automatic transactions and no automatic rollback; ⚠️ **you must manually guard DB writes AND side effects with `dry_run?`.**
+- **`transaction false` / `transaction :none`**: No automatic transaction in **commit** mode only. In dry run, the run is still wrapped in a single rollback transaction so DB changes are never committed. Use when you have external side effects or your own transaction strategy in commit mode.
 
 ```ruby
 module DataShifts
@@ -137,7 +156,53 @@ CONTINUE_FROM=123 COMMIT=1 rake data:shift:backfill_foo
 Notes:
 
 - Only supported for `ActiveRecord::Relation` collections (Array-based collections—like those from `find_exactly!`—cannot be resumed).
-- The filter is `primary_key > CONTINUE_FROM`, so it’s only useful with monotonically increasing primary keys (e.g. `find_each`'s default behavior).
+- The filter is `primary_key > CONTINUE_FROM`, so it's only useful with monotonically increasing primary keys (e.g. `find_each`'s default behavior).
+
+## How shift files map to rake tasks
+
+DataShifter defines one rake task per file in `lib/data_shifts/*.rb`.
+
+- **Task name**: derived from the filename with any leading digits removed.
+  - `20260201120000_backfill_foo.rb` → `data:shift:backfill_foo` (leading `<digits>_` prefix is stripped)
+  - `backfill_foo.rb` → `data:shift:backfill_foo`
+- **Class name**: task name camelized, inside the `DataShifts` module.
+  - `backfill_foo` → `DataShifts::BackfillFoo`
+
+Shift files are **required only when the task runs** (tasks are defined up front; classes load lazily).
+The `description "..."` line is extracted from the file and used for `rake -T` output without loading the shift class.
+
+## Configuration
+
+Configure DataShifter globally in an initializer:
+
+```ruby
+# config/initializers/data_shifter.rb
+DataShifter.configure do |config|
+  # Hosts allowed for HTTP during dry run only (no effect in commit mode)
+  config.allow_external_requests = ["api.readonly.example.com"]
+
+  # Suppress repeated log messages during a shift run (default: true)
+  config.suppress_repeated_logs = true
+
+  # Max unique messages to track for deduplication (default: 1000)
+  config.repeated_log_cap = 1000
+
+  # Global default for progress bar visibility (default: true)
+  config.progress_enabled = true
+
+  # Default status print interval in seconds when ENV STATUS_INTERVAL is not set (default: nil)
+  config.status_interval_seconds = nil
+end
+```
+
+Per-shift overrides:
+
+```ruby
+class MyShift < DataShifter::Shift
+  progress false                # Disable progress bar for this shift
+  suppress_repeated_logs false  # Disable log deduplication for this shift
+end
+```
 
 ## Operational tips
 
@@ -145,7 +210,7 @@ Notes:
 
 - **Start with a dry run**: run the task once with no environment variables set, confirm logs and summary look right, then re-run with `COMMIT=1`.
 - **Make shifts idempotent**: structure `process_record` so re-running is safe (for example, update only when the target column is `NULL`, or compute the same derived value deterministically).
-- **Guard side effects explicitly**: even in dry run, API calls / emails / enqueues are not rolled back. Use `dry_run?` helper to skip side-effectful code.
+- **Guard side effects we don't auto-block**: use `return if dry_run?` for any side effect not covered by Automatic side-effect guards (see above).
 
 ### Choosing a transaction mode (behavior + guidance)
 
@@ -156,8 +221,8 @@ Notes:
   - **Behavior**: in commit mode, records are committed one-by-one; errors are collected and the run continues; the overall run fails at the end if any record failed.
   - **Use when**: you want maximum progress and are OK investigating/fixing a subset of failures.
 - **`transaction false` / `:none`**:
-  - **Behavior**: no automatic transaction wrapper (even in dry run) and no automatic rollback.
-  - **Use when**: you have intentional external side effects, or you’re doing your own transaction/locking strategy—**but always guard writes/side effects with `dry_run?`.**
+  - **Behavior**: in commit mode, no automatic transaction; in dry run, the run is still wrapped in a rollback transaction so DB changes are not committed.
+  - **Use when**: you have intentional external side effects or your own transaction/locking strategy in commit mode.
 
 ### Performance and operability (recommended)
 
@@ -182,16 +247,18 @@ def process_record(buyback)
 end
 ```
 
-### `skip!` (count but don’t update)
+### `skip!` (count but don't update)
 
-Mark a record as skipped (it will increment “Skipped” in the summary):
+Mark a record as skipped. Calling `skip!` terminates the current `process_record` immediately (no `return` needed). The record is counted as "Skipped" in the summary.
 
 ```ruby
 def process_record(record)
   skip!("already done") if record.foo.present?
-  record.update!(foo: value)
+  record.update!(foo: value)  # not executed if skipped
 end
 ```
+
+Skip reasons are grouped: the summary shows the top 10 reasons by count (e.g. `"already done" (42), "not eligible" (3)`) instead of logging each skip inline. This keeps the progress bar clean.
 
 ### Throttling and disabling the progress bar
 
@@ -202,19 +269,28 @@ class SomeShift < DataShifter::Shift
 end
 ```
 
+
 ## Generator
 
 | Command | Generates |
 |--------|----------|
 | `bin/rails generate data_shift backfill_foo` | `lib/data_shifts/<timestamp>_backfill_foo.rb` with a `DataShifts::BackfillFoo` class |
-| `bin/rails generate data_shift backfill_users --model=User` | Same, with `User.all` in `collection` and `process_record(user)` |
+| `bin/rails generate data_shift backfill_users --model User` | Same, with `User.all` in `collection` and `process_record(user)` |
 | `bin/rails generate data_shift backfill_users --spec` | Also generates `spec/lib/data_shifts/backfill_users_spec.rb` when RSpec is enabled |
 
 The generator refuses to create a second shift if it would produce a duplicate rake task name.
 
 ## Testing shifts (RSpec)
 
-This gem ships a small helper module for running shifts in tests:
+This gem ships a small helper module for running shifts in tests. Require it and include `DataShifter::SpecHelper` in specs or in `RSpec.configure` for `type: :data_shift`.
+
+**Helpers:**
+
+- **`run_data_shift(shift_class, dry_run: true, commit: false)`** — Runs the shift; returns an `Axn::Result`. Use `commit: true` to run in commit mode.
+- **`silence_data_shift_output`** — Suppresses STDOUT for the block (e.g. progress bar).
+- **`capture_data_shift_output`** — Runs the block and returns `[result, output_string]` for asserting on printed output.
+
+Use `expect { ... }.not_to change(...)` and `expect { ... }.to change(...)` to assert that data stays unchanged in dry run and changes when committed:
 
 ```ruby
 require "data_shifter/spec_helper"
@@ -222,30 +298,23 @@ require "data_shifter/spec_helper"
 RSpec.describe DataShifts::BackfillFoo do
   include DataShifter::SpecHelper
 
-  before { allow($stdout).to receive(:puts) } # silence shift output
+  before { allow($stdout).to receive(:puts) }
 
   it "does not persist changes in dry run" do
-    result = run_data_shift(described_class, dry_run: true)
-    expect(result).to be_ok
-    # TODO: add some check confirming data is unchanged
+    expect do
+      result = run_data_shift(described_class, dry_run: true)
+      expect(result).to be_ok
+    end.not_to change(Foo, :count)
   end
 
   it "persists changes when committed" do
-    result = run_data_shift(described_class, commit: true)
-    expect(result).to be_ok
-    # TODO: add some check confirming data is changed
+    expect do
+      result = run_data_shift(described_class, commit: true)
+      expect(result).to be_ok
+    end.to change(Foo, :count).by(1)
+    # Or for in-place updates: .to change { record.reload.bar }.from(nil).to("baz")
   end
 end
-```
-
-## Optional RuboCop cop
-
-If you use `transaction false` / `transaction :none`, you should guard writes and side effects with `dry_run?`. You can help avoid mistakes by linting that the helper is at least called once via the bundled cop:
-
-```yaml
-# .rubocop.yml
-require:
-  - data_shifter/rubocop
 ```
 
 ## Requirements
@@ -254,3 +323,4 @@ require:
 - Rails (ActiveRecord, ActiveSupport, Railties) ≥ 7.0
 - `axn` (Shift classes include `Axn`)
 - `ruby-progressbar` (for progress bars)
+- `webmock` (for dry-run HTTP blocking; optional allowlist via `allow_external_requests [...]` / `DataShifter.config.allow_external_requests`)

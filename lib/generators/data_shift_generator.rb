@@ -83,6 +83,7 @@ class DataShiftGenerator < Rails::Generators::NamedBase
     underscored_name = name.underscore
     record_arg = @model_name.present? ? @model_name.underscore : "record"
 
+    model_for_change = @model_name.present? ? @model_name : "Model"
     create_file "spec/lib/data_shifts/#{underscored_name}_spec.rb", <<~RUBY
       # frozen_string_literal: true
 
@@ -94,22 +95,24 @@ class DataShiftGenerator < Rails::Generators::NamedBase
 
         before { allow($stdout).to receive(:puts) }
 
-        # TODO: Set up test records
+        # Set up test records as needed
         # let(:#{record_arg}) { create(:#{record_arg}) }
 
         describe "dry run" do
           it "does not persist changes" do
-            result = run_data_shift(described_class, dry_run: true)
-            expect(result).to be_ok
-            # TODO: Assert that records are unchanged
+            expect do
+              result = run_data_shift(described_class, dry_run: true)
+              expect(result).to be_ok
+            end.not_to change(#{model_for_change}, :count)
           end
         end
 
         describe "commit" do
           it "applies changes" do
-            result = run_data_shift(described_class, commit: true)
-            expect(result).to be_ok
-            # TODO: Assert that records are updated
+            expect do
+              result = run_data_shift(described_class, commit: true)
+              expect(result).to be_ok
+            end.to change(#{model_for_change}, :count)
           end
         end
       end

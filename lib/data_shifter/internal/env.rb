@@ -18,32 +18,22 @@ module DataShifter
         end
       end
 
-      # Parse STATUS_INTERVAL environment variable.
-      # Returns nil if not set or invalid.
+      # Parse STATUS_INTERVAL environment variable, falling back to config.
+      # Returns nil if not set/invalid and config is nil.
       def status_interval_seconds
-        return nil unless ENV["STATUS_INTERVAL"].present?
-
-        Integer(ENV.fetch("STATUS_INTERVAL", nil), 10)
+        if ENV["STATUS_INTERVAL"].present?
+          Integer(ENV.fetch("STATUS_INTERVAL", nil), 10)
+        else
+          DataShifter.config.status_interval_seconds
+        end
       rescue ArgumentError
-        nil
+        DataShifter.config.status_interval_seconds
       end
 
       # Get CONTINUE_FROM environment variable value.
       # Returns nil if not set or empty.
       def continue_from_id
         ENV.fetch("CONTINUE_FROM", nil).presence
-      end
-
-      # Get countdown seconds for no-transaction warning.
-      # DATA_SHIFTER_NO_TX_COUNTDOWN=0 skips the wait (still prints warning).
-      # Returns 5 by default.
-      def no_transaction_countdown_seconds
-        value = ENV.fetch("DATA_SHIFTER_NO_TX_COUNTDOWN", nil)
-        return 5 if value.blank?
-
-        Integer(value, 10)
-      rescue ArgumentError
-        5
       end
     end
   end

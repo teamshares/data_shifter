@@ -11,6 +11,8 @@ module DataShifter
         none: "none",
       }.freeze
 
+      SKIP_REASONS_DISPLAY_LIMIT = 10
+
       module_function
 
       def print_header(io:, shift_class:, total:, label:, dry_run:, transaction_mode:, status_interval:)
@@ -30,7 +32,7 @@ module DataShifter
         io.puts ""
       end
 
-      def print_summary(io:, stats:, errors:, start_time:, dry_run:, transaction_mode:, interrupted:, task_name:, last_successful_id:)
+      def print_summary(io:, stats:, errors:, start_time:, dry_run:, transaction_mode:, interrupted:, task_name:, last_successful_id:, skip_reasons: {})
         return unless start_time
 
         elapsed = (Time.current - start_time).round(1)
@@ -43,6 +45,7 @@ module DataShifter
         io.puts "Succeeded:   #{stats[:succeeded]}"
         io.puts "Failed:      #{stats[:failed]}"
         io.puts "Skipped:     #{stats[:skipped]}"
+        print_skip_reasons(io:, skip_reasons:) if skip_reasons.any?
 
         print_errors(io:, errors:) if errors.any?
         print_interrupt_warning(io:, transaction_mode:, dry_run:) if interrupted
@@ -52,7 +55,7 @@ module DataShifter
         io.puts "=" * 60
       end
 
-      def print_progress(io:, stats:, errors:, start_time:, status_interval:)
+      def print_progress(io:, stats:, errors:, start_time:, status_interval:, skip_reasons: {})
         return unless start_time
 
         elapsed = (Time.current - start_time).round(1)
@@ -74,6 +77,7 @@ module DataShifter
         io.puts "Succeeded:   #{stats[:succeeded]}"
         io.puts "Failed:      #{stats[:failed]}"
         io.puts "Skipped:     #{stats[:skipped]}"
+        print_skip_reasons(io:, skip_reasons:) if skip_reasons.any?
 
         print_errors(io:, errors:) if errors.any?
 
@@ -85,7 +89,9 @@ module DataShifter
         io.puts ""
         io.puts "ERRORS:"
         errors.each do |err|
-          io.puts "  #{err[:record]}: #{err[:error]}"
+          lines = err[:error].to_s.split("\n")
+          io.puts "  #{err[:record]}: #{lines.first}"
+          lines.drop(1).each { |line| io.puts "    #{line}" }
           err[:backtrace]&.each { |line| io.puts "    #{line}" }
         end
       end
@@ -146,25 +152,12 @@ module DataShifter
         end
       end
 
-      def warn_no_transaction_and_countdown(io:, seconds: 5)
-        io.puts ""
-        io.puts "!" * 60
-        io.puts "[WARNING] This shift is running WITHOUT automatic transactions."
-        io.puts ""
-        io.puts "  - DB writes and side effects will NOT be automatically rolled back."
-        io.puts "  - \"Dry run\" mode only applies if YOUR code guards writes with `dry_run?`."
-        io.puts "  - If you have not guarded all writes/side effects, they WILL be applied."
-        io.puts ""
-        io.puts "Press Ctrl+C to abort, or wait to continue..."
-        io.puts "!" * 60
+      def print_skip_reasons(io:, skip_reasons:)
+        return if skip_reasons.empty?
 
-        seconds.times do |i|
-          remaining = seconds - i
-          io.puts "Continuing in #{remaining}..."
-          sleep(1)
-        end
-
-        io.puts ""
+        top = skip_reasons.sort_by { |_reason, count| -count }.first(SKIP_REASONS_DISPLAY_LIMIT)
+        formatted = top.map { |reason, count| "\"#{reason}\" (#{count})" }.join(", ")
+        io.puts "             #{formatted}"
       end
     end
   end
