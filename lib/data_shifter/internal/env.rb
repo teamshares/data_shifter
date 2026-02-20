@@ -18,14 +18,16 @@ module DataShifter
         end
       end
 
-      # Parse STATUS_INTERVAL environment variable.
-      # Returns nil if not set or invalid.
+      # Parse STATUS_INTERVAL environment variable, falling back to config.
+      # Returns nil if not set/invalid and config is nil.
       def status_interval_seconds
-        return nil unless ENV["STATUS_INTERVAL"].present?
-
-        Integer(ENV.fetch("STATUS_INTERVAL", nil), 10)
+        if ENV["STATUS_INTERVAL"].present?
+          Integer(ENV.fetch("STATUS_INTERVAL", nil), 10)
+        else
+          DataShifter.config.status_interval_seconds
+        end
       rescue ArgumentError
-        nil
+        DataShifter.config.status_interval_seconds
       end
 
       # Get CONTINUE_FROM environment variable value.

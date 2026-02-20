@@ -21,7 +21,7 @@ Generate a shift (optionally scoped to a model):
 
 ```bash
 bin/rails generate data_shift backfill_foo
-bin/rails generate data_shift backfill_users --model=User
+bin/rails generate data_shift backfill_users --model User
 ```
 
 Add  your logic to the generated file in `lib/data_shifts/`.
@@ -32,19 +32,6 @@ Run it:
 rake data:shift:backfill_foo
 COMMIT=1 rake data:shift:backfill_foo
 ```
-
-## How shift files map to rake tasks
-
-DataShifter defines one rake task per file in `lib/data_shifts/*.rb`.
-
-- **Task name**: derived from the filename with any leading digits removed.
-  - `20260201120000_backfill_foo.rb` → `data:shift:backfill_foo` (leading `<digits>_` prefix is stripped)
-  - `backfill_foo.rb` → `data:shift:backfill_foo`
-- **Class name**: task name camelized, inside the `DataShifts` module.
-  - `backfill_foo` → `DataShifts::BackfillFoo`
-
-Shift files are **required only when the task runs** (tasks are defined up front; classes load lazily).
-The `description "..."` line is extracted from the file and used for `rake -T` output without loading the shift class.
 
 ## Defining a shift
 
@@ -83,7 +70,7 @@ In **dry run** mode, DataShifter automatically blocks or fakes these side effect
 
 | Service      | Behavior in dry run |
 |-------------|----------------------|
-| **HTTP**    | Blocked via WebMock (`disable_net_connect!`). Allow specific hosts with `allow_net_connect` or `DataShifter.dry_run_allow_net_connect`. |
+| **HTTP**    | Blocked via WebMock (`disable_net_connect!`). Allow specific hosts with `allow_external_requests [...]` or `DataShifter.config.allow_external_requests`. |
 | **ActionMailer** | `perform_deliveries = false` (restored after run). |
 | **ActiveJob**    | Queue adapter set to `:test` (restored after run). |
 | **Sidekiq**      | `Sidekiq::Testing.fake!` (restored with `disable!` after run). Only applied if `Sidekiq::Testing` is already loaded. |
@@ -96,7 +83,7 @@ To allow HTTP to specific hosts during dry run (e.g. a migration that must call 
 # Per shift
 module DataShifts
   class BackfillFromApi < DataShifter::Shift
-    allow_net_connect "api.readonly.example.com", %r{\.internal\.company\z}
+    allow_external_requests ["api.readonly.example.com", %r{\.internal\.company\z}]
     # ...
   end
 end
@@ -104,7 +91,9 @@ end
 
 ```ruby
 # Global (e.g. in config/initializers/data_shifter.rb)
-DataShifter.dry_run_allow_net_connect = ["api.readonly.example.com"]
+DataShifter.configure do |config|
+  config.allow_external_requests = ["api.readonly.example.com"]
+end
 ```
 
 Allowed hosts are combined (per-shift + global). Restore (WebMock, mail, jobs) happens in an `ensure` so later code and other specs are unaffected.
@@ -168,6 +157,19 @@ Notes:
 
 - Only supported for `ActiveRecord::Relation` collections (Array-based collections—like those from `find_exactly!`—cannot be resumed).
 - The filter is `primary_key > CONTINUE_FROM`, so it’s only useful with monotonically increasing primary keys (e.g. `find_each`'s default behavior).
+
+## How shift files map to rake tasks
+
+DataShifter defines one rake task per file in `lib/data_shifts/*.rb`.
+
+- **Task name**: derived from the filename with any leading digits removed.
+  - `20260201120000_backfill_foo.rb` → `data:shift:backfill_foo` (leading `<digits>_` prefix is stripped)
+  - `backfill_foo.rb` → `data:shift:backfill_foo`
+- **Class name**: task name camelized, inside the `DataShifts` module.
+  - `backfill_foo` → `DataShifts::BackfillFoo`
+
+Shift files are **required only when the task runs** (tasks are defined up front; classes load lazily).
+The `description "..."` line is extracted from the file and used for `rake -T` output without loading the shift class.
 
 ## Operational tips
 
@@ -237,7 +239,7 @@ end
 | Command | Generates |
 |--------|----------|
 | `bin/rails generate data_shift backfill_foo` | `lib/data_shifts/<timestamp>_backfill_foo.rb` with a `DataShifts::BackfillFoo` class |
-| `bin/rails generate data_shift backfill_users --model=User` | Same, with `User.all` in `collection` and `process_record(user)` |
+| `bin/rails generate data_shift backfill_users --model User` | Same, with `User.all` in `collection` and `process_record(user)` |
 | `bin/rails generate data_shift backfill_users --spec` | Also generates `spec/lib/data_shifts/backfill_users_spec.rb` when RSpec is enabled |
 
 The generator refuses to create a second shift if it would produce a duplicate rake task name.
@@ -279,10 +281,43 @@ RSpec.describe DataShifts::BackfillFoo do
 end
 ```
 
+## Configuration
+
+Configure DataShifter globally in an initializer:
+
+```ruby
+# config/initializers/data_shifter.rb
+DataShifter.configure do |config|
+  # Hosts allowed for HTTP during dry run only (no effect in commit mode)
+  config.allow_external_requests = ["api.readonly.example.com"]
+
+  # Suppress repeated log messages during a shift run (default: true)
+  config.suppress_repeated_logs = true
+
+  # Max unique messages to track for deduplication (default: 1000)
+  config.repeated_log_cap = 1000
+
+  # Global default for progress bar visibility (default: true)
+  config.progress_enabled = true
+
+  # Default status print interval in seconds when ENV STATUS_INTERVAL is not set (default: nil)
+  config.status_interval_seconds = nil
+end
+```
+
+Per-shift overrides:
+
+```ruby
+class MyShift < DataShifter::Shift
+  progress false                # Disable progress bar for this shift
+  suppress_repeated_logs false  # Disable log deduplication for this shift
+end
+```
+
 ## Requirements
 
 - Ruby ≥ 3.2.1
 - Rails (ActiveRecord, ActiveSupport, Railties) ≥ 7.0
 - `axn` (Shift classes include `Axn`)
 - `ruby-progressbar` (for progress bars)
-- `webmock` (for dry-run HTTP blocking; optional allowlist via `allow_net_connect` / `DataShifter.dry_run_allow_net_connect`)
+- `webmock` (for dry-run HTTP blocking; optional allowlist via `allow_external_requests [...]` / `DataShifter.config.allow_external_requests`)

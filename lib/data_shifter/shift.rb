@@ -8,6 +8,7 @@ require_relative "internal/signal_handler"
 require_relative "internal/record_utils"
 require_relative "internal/progress_bar"
 require_relative "internal/side_effect_guards"
+require_relative "internal/log_deduplicator"
 
 # Base class for data shifts. Dry-run by default, progress bars, transaction modes, consistent summaries.
 #
@@ -52,6 +53,7 @@ module DataShifter
 
     log_calls false if respond_to?(:log_calls)
 
+    around :_with_log_deduplication
     around :_with_side_effect_guards
     around :_with_transaction_for_dry_run
     before :_reset_tracking
@@ -59,11 +61,12 @@ module DataShifter
     on_error :_print_summary
 
     class_attribute :_transaction_mode, default: :single
-    class_attribute :_progress_enabled, default: true
+    class_attribute :_progress_enabled, default: nil
     class_attribute :_description, default: nil
     class_attribute :_task_name, default: nil
     class_attribute :_throttle_interval, default: nil
-    class_attribute :_dry_run_allow_net_connect, default: [], instance_accessor: false
+    class_attribute :_allow_external_requests, default: [], instance_accessor: false
+    class_attribute :_suppress_repeated_logs, default: nil, instance_accessor: false
 
     class << self
       def description(text = nil)
@@ -107,10 +110,17 @@ module DataShifter
         self._throttle_interval = interval
       end
 
-      # Allow these hosts (or regexes) for HTTP during dry run. Combines with DataShifter.dry_run_allow_net_connect.
-      # Example: allow_net_connect "api.readonly.example.com", %r{\.internal\.company\z}
-      def allow_net_connect(*hosts)
-        self._dry_run_allow_net_connect = hosts.flatten
+      # Allow these hosts (or regexes) for HTTP during dry run only. Combines with DataShifter.config.allow_external_requests.
+      # Has no effect in commit mode — HTTP is unrestricted when dry_run is false.
+      # Example: allow_external_requests ["api.readonly.example.com", %r{\.internal\.company\z}]
+      def allow_external_requests(hosts)
+        self._allow_external_requests = Array(hosts)
+      end
+
+      # Enable/disable log deduplication for this shift. Overrides DataShifter.config.suppress_repeated_logs.
+      # Example: suppress_repeated_logs false
+      def suppress_repeated_logs(enabled)
+        self._suppress_repeated_logs = !!enabled
       end
 
       def run!
@@ -154,6 +164,28 @@ module DataShifter
 
     # --- Axn lifecycle hooks ---
 
+    def _with_log_deduplication(chain)
+      effective = self.class._suppress_repeated_logs.nil? ? DataShifter.config.suppress_repeated_logs : self.class._suppress_repeated_logs
+      unless effective && defined?(::Rails) && ::Rails.respond_to?(:logger) && ::Rails.logger
+        chain.call
+        return
+      end
+
+      original_logger = ::Rails.logger
+      original_ar_logger = ::ActiveRecord::Base.logger
+
+      Internal::LogDeduplicator.with_deduplicating_logger(original_logger, cap: DataShifter.config.repeated_log_cap) do |proxy|
+        ::Rails.logger = proxy
+        ::ActiveRecord::Base.logger = proxy
+        chain.call
+      end
+    ensure
+      if effective && defined?(::Rails) && ::Rails.respond_to?(:logger=)
+        ::Rails.logger = original_logger
+        ::ActiveRecord::Base.logger = original_ar_logger
+      end
+    end
+
     def _with_side_effect_guards(chain)
       if dry_run?
         Internal::SideEffectGuards.with_guards(shift_class: self.class) { chain.call }
@@ -169,9 +201,9 @@ module DataShifter
           seconds: Internal::Env.no_transaction_countdown_seconds,
         )
         if dry_run?
-          ActiveRecord::Base.transaction do
+          ::ActiveRecord::Base.transaction do
             chain.call
-            raise ActiveRecord::Rollback
+            raise ::ActiveRecord::Rollback
           end
         else
           chain.call
@@ -180,17 +212,17 @@ module DataShifter
       end
 
       if _transaction_mode == :single
-        ActiveRecord::Base.transaction do
+        ::ActiveRecord::Base.transaction do
           chain.call
-          raise ActiveRecord::Rollback if dry_run?
+          raise ::ActiveRecord::Rollback if dry_run?
         end
         return
       end
 
       if dry_run?
-        ActiveRecord::Base.transaction do
+        ::ActiveRecord::Base.transaction do
           chain.call
-          raise ActiveRecord::Rollback
+          raise ::ActiveRecord::Rollback
         end
       else
         chain.call
@@ -303,11 +335,11 @@ module DataShifter
     # --- Transaction execution strategies ---
 
     def _run_in_single_transaction(enum, total, &block)
-      ActiveRecord::Base.transaction do
+      ::ActiveRecord::Base.transaction do
         _iterate(enum, total, &block)
         if dry_run?
           log "\nDry run complete — rolling back all changes."
-          raise ActiveRecord::Rollback
+          raise ::ActiveRecord::Rollback
         end
       end
     rescue StandardError => e
@@ -322,7 +354,7 @@ module DataShifter
         if dry_run?
           yield record
         else
-          ActiveRecord::Base.transaction { yield record }
+          ::ActiveRecord::Base.transaction { yield record }
         end
       end
     end
@@ -332,7 +364,8 @@ module DataShifter
     end
 
     def _iterate(enum, total)
-      bar = Internal::ProgressBar.create(total:, dry_run: dry_run?, enabled: _progress_enabled)
+      progress_on = _progress_enabled.nil? ? DataShifter.config.progress_enabled : _progress_enabled
+      bar = Internal::ProgressBar.create(total:, dry_run: dry_run?, enabled: progress_on)
       if enum.respond_to?(:find_each)
         enum.find_each do |record|
           _process_one(record) { yield record }

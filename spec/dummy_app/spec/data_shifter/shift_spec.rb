@@ -544,7 +544,7 @@ RSpec.describe DataShifter::Shift do
         define_method(:process_record) { |_record| nil }
       end
 
-      expect(klass.progress).to be true
+      expect(klass.progress).to be_nil
 
       klass.progress false
       expect(klass.progress).to be false
@@ -775,11 +775,11 @@ RSpec.describe DataShifter::Shift do
       expect { migration_class.call(dry_run: true) }.to raise_error(WebMock::NetConnectNotAllowedError)
     end
 
-    it "allows HTTP to hosts listed in allow_net_connect during dry run" do
+    it "allows HTTP to hosts listed in allow_external_requests during dry run" do
       record_a # ensure at least one user exists
       stub_request(:get, "http://allowed.example.com/").to_return(status: 200, body: "ok")
       migration_class = Class.new(described_class) do
-        allow_net_connect "allowed.example.com"
+        allow_external_requests ["allowed.example.com"]
 
         define_method(:collection) { User.limit(1) }
         define_method(:process_record) { |_record| Net::HTTP.get(URI("http://allowed.example.com/")) }
@@ -844,12 +844,63 @@ RSpec.describe DataShifter::Shift do
     end
   end
 
-  describe ".allow_net_connect" do
+  describe ".allow_external_requests" do
     it "stores allowed hosts for dry run" do
       klass = Class.new(described_class) do
-        allow_net_connect "api.example.com", %r{\.readonly\.local\z}
+        allow_external_requests ["api.example.com", %r{\.readonly\.local\z}]
       end
-      expect(klass._dry_run_allow_net_connect).to eq(["api.example.com", %r{\.readonly\.local\z}])
+      expect(klass._allow_external_requests).to eq(["api.example.com", %r{\.readonly\.local\z}])
+    end
+  end
+
+  describe ".suppress_repeated_logs" do
+    it "stores boolean for per-shift override" do
+      klass = Class.new(described_class) do
+        suppress_repeated_logs false
+      end
+      expect(klass._suppress_repeated_logs).to be false
+    end
+
+    it "defaults to nil (use config)" do
+      klass = Class.new(described_class)
+      expect(klass._suppress_repeated_logs).to be_nil
+    end
+  end
+
+  describe "progress from config" do
+    let(:original_progress_enabled) { DataShifter.config.progress_enabled }
+
+    before { original_progress_enabled }
+
+    after { DataShifter.config.progress_enabled = original_progress_enabled }
+
+    it "uses config.progress_enabled when _progress_enabled is nil" do
+      DataShifter.config.progress_enabled = false
+      items = [Struct.new(:id).new(1), Struct.new(:id).new(2)]
+      klass = Class.new(described_class) do
+        define_singleton_method(:items) { items }
+        define_method(:collection) { self.class.items }
+        define_method(:process_record) { |_| nil }
+      end
+      expect(klass._progress_enabled).to be_nil
+
+      expect(DataShifter::Internal::ProgressBar).to receive(:create).with(hash_including(enabled: false)).and_call_original
+      klass.call(dry_run: true)
+    end
+
+    it "uses per-shift progress setting when explicitly set" do
+      DataShifter.config.progress_enabled = true
+      items = [Struct.new(:id).new(1), Struct.new(:id).new(2)]
+      klass = Class.new(described_class) do
+        progress false
+        define_singleton_method(:items) { items }
+        define_method(:collection) { self.class.items }
+        define_method(:process_record) { |_| nil }
+      end
+
+      expect(DataShifter::Internal::ProgressBar).to receive(:create).with(hash_including(enabled: false)).and_call_original
+      result = klass.call(dry_run: true)
+      expect(result).to be_ok
     end
   end
 

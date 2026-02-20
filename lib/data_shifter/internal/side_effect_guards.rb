@@ -55,8 +55,8 @@ module DataShifter
         end
 
         def allowed_net_hosts(shift_class)
-          per_shift = shift_class.respond_to?(:_dry_run_allow_net_connect) ? shift_class._dry_run_allow_net_connect : []
-          global = DataShifter.respond_to?(:dry_run_allow_net_connect) ? DataShifter.dry_run_allow_net_connect : []
+          per_shift = shift_class.respond_to?(:_allow_external_requests) ? shift_class._allow_external_requests : []
+          global = DataShifter.config.allow_external_requests
           Array(per_shift) + Array(global)
         end
 
