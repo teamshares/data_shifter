@@ -248,4 +248,93 @@ RSpec.describe DataShiftGenerator do
       end
     end
   end
+
+  describe "with --ad-hoc option" do
+    before { run_generator %w[fix_user_123 --ad-hoc] }
+
+    it "creates a shift file with ad_hoc block" do
+      file = Dir.glob("#{destination_root}/lib/data_shifts/*_fix_user_123.rb").first
+      content = File.read(file)
+
+      expect(content).to include("ad_hoc do")
+    end
+
+    it "does not include collection method" do
+      file = Dir.glob("#{destination_root}/lib/data_shifts/*_fix_user_123.rb").first
+      content = File.read(file)
+
+      expect(content).not_to include("def collection")
+    end
+
+    it "does not include process_record method" do
+      file = Dir.glob("#{destination_root}/lib/data_shifts/*_fix_user_123.rb").first
+      content = File.read(file)
+
+      expect(content).not_to include("def process_record")
+    end
+
+    it "includes transaction DSL with per-block comment" do
+      file = Dir.glob("#{destination_root}/lib/data_shifts/*_fix_user_123.rb").first
+      content = File.read(file)
+
+      expect(content).to include("transaction true # or :per_record for per-block transactions")
+    end
+
+    it "includes placeholder comment inside ad_hoc block" do
+      file = Dir.glob("#{destination_root}/lib/data_shifts/*_fix_user_123.rb").first
+      content = File.read(file)
+
+      expect(content).to include("# Model.find(...).update!(...)")
+    end
+
+    it "generates valid Ruby syntax" do
+      file = Dir.glob("#{destination_root}/lib/data_shifts/*_fix_user_123.rb").first
+      expect { RubyVM::InstructionSequence.compile_file(file) }.not_to raise_error
+    end
+
+    context "with --model option" do
+      before { run_generator %w[fix_user_456 --ad-hoc --model=User] }
+
+      it "includes model-specific placeholder comment" do
+        file = Dir.glob("#{destination_root}/lib/data_shifts/*_fix_user_456.rb").first
+        content = File.read(file)
+
+        expect(content).to include("# User.find(...).update!(...)")
+      end
+    end
+  end
+
+  describe "ad-hoc spec file generation" do
+    context "when rspec is enabled and --spec --ad-hoc are passed" do
+      before do
+        allow_any_instance_of(DataShiftGenerator).to receive(:rspec_enabled?).and_return(true)
+        run_generator %w[fix_orphan_records --ad-hoc --spec]
+      end
+
+      it "creates a spec file" do
+        spec_file = "#{destination_root}/spec/lib/data_shifts/fix_orphan_records_spec.rb"
+        expect(File.exist?(spec_file)).to be true
+      end
+
+      it "does not include Model.count assertions" do
+        spec_file = "#{destination_root}/spec/lib/data_shifts/fix_orphan_records_spec.rb"
+        content = File.read(spec_file)
+
+        expect(content).not_to include(".not_to change")
+        expect(content).not_to include(".to change")
+      end
+
+      it "includes simple success assertions" do
+        spec_file = "#{destination_root}/spec/lib/data_shifts/fix_orphan_records_spec.rb"
+        content = File.read(spec_file)
+
+        expect(content).to include("expect(result).to be_ok")
+      end
+
+      it "generates valid Ruby syntax" do
+        spec_file = "#{destination_root}/spec/lib/data_shifts/fix_orphan_records_spec.rb"
+        expect { RubyVM::InstructionSequence.compile_file(spec_file) }.not_to raise_error
+      end
+    end
+  end
 end

@@ -35,7 +35,9 @@ COMMIT=1 rake data:shift:backfill_foo
 
 ## Defining a shift
 
-Typical shifts implement:
+### Collection-based shifts (typical)
+
+For systemic migrations across many records, implement:
 
 - **`collection`**: an `ActiveRecord::Relation` (uses `find_each`) or an `Array`/Enumerable
 - **`process_record(record)`**: applies the change for one record
@@ -54,6 +56,41 @@ module DataShifts
     end
   end
 end
+```
+
+### Ad hoc shifts (targeted, one-off changes)
+
+For targeted changes to specific records (e.g. fixing a bug for particular IDs), use `ad_hoc` blocks instead:
+
+```ruby
+module DataShifts
+  class FixConradLegendyPayout < DataShifter::Shift
+    description "PRO-1991: Fix Conrad Legendy payout issues"
+
+    ad_hoc "Make deferred EBB approvable" do
+      event = CapTable::Event.find(12345)
+      event.update!(status: "pending_approval")
+    end
+
+    ad_hoc "Extend repurchase agreement signing" do
+      ra = RepurchaseAgreement.find(67890)
+      ra.update!(expires_at: 30.days.from_now)
+    end
+  end
+end
+```
+
+Ad hoc blocks:
+
+- Run in sequence within the same lifecycle (transaction, dry run protection, summary)
+- Get access to all shift instance methods (`dry_run?`, `log`, `skip!`, `find_exactly!`, etc.)
+- Can be labeled (shown in errors/summary) or unlabeled
+- Default to single transaction (all blocks commit or roll back together); use `transaction :per_record` for per-block transactions
+
+Generate an ad hoc shift with:
+
+```bash
+bin/rails generate data_shift fix_user_123 --ad-hoc
 ```
 
 ## Dry run vs commit
@@ -277,6 +314,7 @@ end
 | `bin/rails generate data_shift backfill_foo` | `lib/data_shifts/<timestamp>_backfill_foo.rb` with a `DataShifts::BackfillFoo` class |
 | `bin/rails generate data_shift backfill_users --model User` | Same, with `User.all` in `collection` and `process_record(user)` |
 | `bin/rails generate data_shift backfill_users --spec` | Also generates `spec/lib/data_shifts/backfill_users_spec.rb` when RSpec is enabled |
+| `bin/rails generate data_shift fix_user_123 --ad-hoc` | Generates a shift with an `ad_hoc` block instead of `collection`/`process_record` |
 
 The generator refuses to create a second shift if it would produce a duplicate rake task name.
 

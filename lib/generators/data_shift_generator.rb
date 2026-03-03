@@ -5,6 +5,7 @@
 # Usage:
 #   rails g data_shift backfill_users
 #   rails g data_shift backfill_users --model=User
+#   rails g data_shift fix_user_123 --ad-hoc
 #
 class DataShiftGenerator < Rails::Generators::NamedBase
   class_option :model,
@@ -16,6 +17,11 @@ class DataShiftGenerator < Rails::Generators::NamedBase
                type: :boolean,
                default: false,
                desc: "Generate RSpec file"
+
+  class_option :ad_hoc,
+               type: :boolean,
+               default: false,
+               desc: "Generate an ad hoc shift (uses ad_hoc blocks instead of collection/process_record)"
 
   def check_for_naming_conflict
     underscored_name = name.underscore
@@ -44,6 +50,29 @@ class DataShiftGenerator < Rails::Generators::NamedBase
     model_name_raw = options[:model].to_s.strip
     @model_name = model_name_raw.present? ? model_name_raw.underscore.singularize.camelize : nil
 
+    if options[:ad_hoc]
+      _create_ad_hoc_shift_file(underscored_name)
+    else
+      _create_standard_shift_file(underscored_name)
+    end
+  end
+
+  def create_spec_file
+    return unless options[:spec]
+    return unless rspec_enabled?
+
+    underscored_name = name.underscore
+
+    if options[:ad_hoc]
+      _create_ad_hoc_spec_file(underscored_name)
+    else
+      _create_standard_spec_file(underscored_name)
+    end
+  end
+
+  private
+
+  def _create_standard_shift_file(underscored_name)
     collection_body = if @model_name.present?
                         "#{@model_name}.all"
                       else
@@ -76,14 +105,33 @@ class DataShiftGenerator < Rails::Generators::NamedBase
     RUBY
   end
 
-  def create_spec_file
-    return unless options[:spec]
-    return unless rspec_enabled?
+  def _create_ad_hoc_shift_file(underscored_name)
+    model_comment = @model_name.present? ? "# #{@model_name}.find(...).update!(...)" : "# Model.find(...).update!(...)"
 
-    underscored_name = name.underscore
+    create_file "lib/data_shifts/#{@timestamp}_#{underscored_name}.rb", <<~RUBY
+      # frozen_string_literal: true
+
+      #   rake data:shift:#{underscored_name}          # Dry run (default)
+      #   COMMIT=1 rake data:shift:#{underscored_name} # Apply changes
+
+      module DataShifts
+        class #{@class_name} < DataShifter::Shift
+          description "TODO: Describe this shift"
+
+          transaction true # or :per_record for per-block transactions
+
+          ad_hoc do
+            #{model_comment}
+          end
+        end
+      end
+    RUBY
+  end
+
+  def _create_standard_spec_file(underscored_name)
     record_arg = @model_name.present? ? @model_name.underscore : "record"
-
     model_for_change = @model_name.present? ? @model_name : "Model"
+
     create_file "spec/lib/data_shifts/#{underscored_name}_spec.rb", <<~RUBY
       # frozen_string_literal: true
 
@@ -119,7 +167,34 @@ class DataShiftGenerator < Rails::Generators::NamedBase
     RUBY
   end
 
-  private
+  def _create_ad_hoc_spec_file(underscored_name)
+    create_file "spec/lib/data_shifts/#{underscored_name}_spec.rb", <<~RUBY
+      # frozen_string_literal: true
+
+      require "rails_helper"
+      require "data_shifter/spec_helper"
+
+      RSpec.describe DataShifts::#{@class_name} do
+        include DataShifter::SpecHelper
+
+        before { allow($stdout).to receive(:puts) }
+
+        describe "dry run" do
+          it "succeeds without persisting changes" do
+            result = run_data_shift(described_class, dry_run: true)
+            expect(result).to be_ok
+          end
+        end
+
+        describe "commit" do
+          it "applies changes" do
+            result = run_data_shift(described_class, commit: true)
+            expect(result).to be_ok
+          end
+        end
+      end
+    RUBY
+  end
 
   def rspec_enabled?
     # Check if rspec-rails is available and configured as the test framework

@@ -932,4 +932,384 @@ RSpec.describe DataShifter::Shift do
       expect { migration_class.transaction(:invalid) }.to raise_error(ArgumentError)
     end
   end
+
+  describe "ad_hoc DSL" do
+    describe "basic functionality" do
+      it "stores blocks in _ad_hoc_blocks" do
+        klass = Class.new(described_class) do
+          ad_hoc "First" do
+            # block 1
+          end
+          ad_hoc "Second" do
+            # block 2
+          end
+        end
+        expect(klass._ad_hoc_blocks.size).to eq(2)
+        expect(klass._ad_hoc_blocks[0][:label]).to eq("First")
+        expect(klass._ad_hoc_blocks[1][:label]).to eq("Second")
+      end
+
+      it "allows blocks without labels" do
+        klass = Class.new(described_class) do
+          ad_hoc do
+            # no label
+          end
+        end
+        expect(klass._ad_hoc_blocks.size).to eq(1)
+        expect(klass._ad_hoc_blocks[0][:label]).to be_nil
+      end
+
+      it "raises if no block given" do
+        expect do
+          Class.new(described_class) do
+            ad_hoc "Missing block"
+          end
+        end.to raise_error(ArgumentError, /ad_hoc requires a block/)
+      end
+
+      it "does not share blocks between subclasses" do
+        parent = Class.new(described_class) do
+          ad_hoc "Parent" do
+            # parent block
+          end
+        end
+        child = Class.new(parent) do
+          ad_hoc "Child" do
+            # child block
+          end
+        end
+        expect(parent._ad_hoc_blocks.size).to eq(1)
+        expect(child._ad_hoc_blocks.size).to eq(2)
+      end
+    end
+
+    describe "execution" do
+      let(:record) { create(:user) }
+
+      it "runs ad_hoc blocks and gets dry_run protection" do
+        rec = record
+        klass = Class.new(described_class) do
+          ad_hoc "Update user" do
+            User.find(rec.id).update!(time_zone: "Pacific Time (US & Canada)")
+          end
+        end
+        klass.call(dry_run: true)
+        expect(record.reload.time_zone).to eq("Eastern Time (US & Canada)")
+      end
+
+      it "applies changes when dry_run is false" do
+        rec = record
+        klass = Class.new(described_class) do
+          ad_hoc "Update user" do
+            User.find(rec.id).update!(time_zone: "Pacific Time (US & Canada)")
+          end
+        end
+        result = klass.call(dry_run: false)
+        expect(result).to be_ok
+        expect(record.reload.time_zone).to eq("Pacific Time (US & Canada)")
+      end
+
+      it "runs multiple blocks in order" do
+        execution_order = []
+        klass = Class.new(described_class) do
+          ad_hoc "First" do
+            execution_order << 1
+          end
+          ad_hoc "Second" do
+            execution_order << 2
+          end
+          ad_hoc "Third" do
+            execution_order << 3
+          end
+          define_singleton_method(:execution_order) { execution_order }
+        end
+        klass.call(dry_run: true)
+        expect(execution_order).to eq([1, 2, 3])
+      end
+
+      it "gives blocks access to shift instance methods" do
+        rec = record
+        found_record = nil
+        klass = Class.new(described_class) do
+          ad_hoc do
+            found_record = find_exactly!(User, [rec.id]).first
+          end
+          define_singleton_method(:found_record) { found_record }
+        end
+        klass.call(dry_run: true)
+        expect(found_record).to eq(record)
+      end
+
+      it "gives blocks access to dry_run?" do
+        dry_run_value = nil
+        klass = Class.new(described_class) do
+          ad_hoc do
+            dry_run_value = dry_run?
+          end
+          define_singleton_method(:dry_run_value) { dry_run_value }
+        end
+        klass.call(dry_run: true)
+        expect(dry_run_value).to be true
+
+        klass.call(dry_run: false)
+        expect(dry_run_value).to be false
+      end
+    end
+
+    describe "stats tracking" do
+      it "increments processed and succeeded for completed blocks" do
+        output = StringIO.new
+        allow($stdout).to receive(:puts) { |msg| output.puts(msg) }
+
+        klass = Class.new(described_class) do
+          ad_hoc "Block 1" do
+            # success
+          end
+          ad_hoc "Block 2" do
+            # success
+          end
+        end
+        klass.call(dry_run: true)
+
+        expect(output.string).to include("Processed:   2")
+        expect(output.string).to include("Succeeded:   2")
+      end
+
+      it "handles skip! in ad_hoc blocks" do
+        output = StringIO.new
+        allow($stdout).to receive(:puts) { |msg| output.puts(msg) }
+
+        klass = Class.new(described_class) do
+          ad_hoc "Block 1" do
+            # success
+          end
+          ad_hoc "Block 2" do
+            skip!("not needed")
+          end
+          ad_hoc "Block 3" do
+            # success
+          end
+        end
+        result = klass.call(dry_run: true)
+        expect(result).to be_ok
+
+        expect(output.string).to include("Processed:   2")
+        expect(output.string).to include("Skipped:     1")
+        expect(output.string).to include('"not needed" (1)')
+      end
+    end
+
+    describe "failure handling" do
+      it "re-raises with label prefix when block fails" do
+        klass = Class.new(described_class) do
+          ad_hoc "Fix user A" do
+            raise "something went wrong"
+          end
+        end
+        result = klass.call(dry_run: true)
+        expect(result).not_to be_ok
+        expect(result.exception.message).to include("Fix user A: something went wrong")
+      end
+
+      it "reports failure without prefix when no label" do
+        klass = Class.new(described_class) do
+          ad_hoc do
+            raise "unlabeled error"
+          end
+        end
+        result = klass.call(dry_run: true)
+        expect(result).not_to be_ok
+        expect(result.exception.message).to eq("unlabeled error")
+      end
+
+      it "tracks failed count in summary" do
+        output = StringIO.new
+        allow($stdout).to receive(:puts) { |msg| output.puts(msg) }
+
+        klass = Class.new(described_class) do
+          ad_hoc "Failing block" do
+            raise "boom"
+          end
+        end
+        klass.call(dry_run: true)
+
+        expect(output.string).to include("Failed:      1")
+      end
+    end
+
+    describe "conflict validation" do
+      it "raises ArgumentError when ad_hoc blocks and collection are both defined" do
+        klass = Class.new(described_class) do
+          ad_hoc "Do something" do
+            # ad hoc logic
+          end
+
+          def collection
+            User.all
+          end
+        end
+        result = klass.call(dry_run: true)
+        expect(result).not_to be_ok
+        expect(result.exception).to be_a(ArgumentError)
+        expect(result.exception.message).to include("Cannot use ad_hoc blocks and override collection or process_record")
+      end
+
+      it "raises ArgumentError when ad_hoc blocks and process_record are both defined" do
+        klass = Class.new(described_class) do
+          ad_hoc "Do something" do
+            # ad hoc logic
+          end
+
+          def process_record(_record)
+            # process logic
+          end
+        end
+        result = klass.call(dry_run: true)
+        expect(result).not_to be_ok
+        expect(result.exception).to be_a(ArgumentError)
+        expect(result.exception.message).to include("Cannot use ad_hoc blocks and override collection or process_record")
+      end
+    end
+
+    describe "transaction modes" do
+      let(:record_a) { create(:user) }
+      let(:record_b) { create(:user) }
+
+      context "with single transaction (default)" do
+        it "rolls back all blocks when one fails" do
+          rec_a = record_a
+          rec_b = record_b
+
+          klass = Class.new(described_class) do
+            ad_hoc "Update A" do
+              User.find(rec_a.id).update!(time_zone: "Pacific Time (US & Canada)")
+            end
+            ad_hoc "Update B and fail" do
+              User.find(rec_b.id).update!(time_zone: "Pacific Time (US & Canada)")
+              raise "boom"
+            end
+          end
+          klass.call(dry_run: false)
+
+          expect(record_a.reload.time_zone).to eq("Eastern Time (US & Canada)")
+          expect(record_b.reload.time_zone).to eq("Eastern Time (US & Canada)")
+        end
+      end
+
+      context "with per_record (per-block) transaction" do
+        it "persists successful blocks when later block fails" do
+          rec_a = record_a
+          rec_b = record_b
+
+          klass = Class.new(described_class) do
+            transaction :per_record
+
+            ad_hoc "Update A" do
+              User.find(rec_a.id).update!(time_zone: "Pacific Time (US & Canada)")
+            end
+            ad_hoc "Update B and fail" do
+              User.find(rec_b.id).update!(time_zone: "Pacific Time (US & Canada)")
+              raise "boom"
+            end
+          end
+          klass.call(dry_run: false)
+
+          expect(record_a.reload.time_zone).to eq("Pacific Time (US & Canada)")
+          expect(record_b.reload.time_zone).to eq("Eastern Time (US & Canada)")
+        end
+
+        it "still rolls back in dry run mode" do
+          rec_a = record_a
+
+          klass = Class.new(described_class) do
+            transaction :per_record
+
+            ad_hoc "Update A" do
+              User.find(rec_a.id).update!(time_zone: "Pacific Time (US & Canada)")
+            end
+          end
+          klass.call(dry_run: true)
+
+          expect(record_a.reload.time_zone).to eq("Eastern Time (US & Canada)")
+        end
+      end
+    end
+
+    describe "interrupt handling" do
+      it "handles Ctrl-C and prints summary" do
+        klass = Class.new(described_class) do
+          ad_hoc "First" do
+            # success
+          end
+          ad_hoc "Second" do
+            raise Interrupt
+          end
+        end
+
+        expect($stdout).to receive(:puts).with(/Interrupted by user/).at_least(:once)
+        expect { klass.call(dry_run: true) }.to raise_error(Interrupt)
+      end
+    end
+
+    describe "NotImplementedError messages" do
+      it "includes ad_hoc hint in collection error" do
+        klass = Class.new(described_class)
+        expect { klass.new(dry_run: true).send(:collection) }.to raise_error(NotImplementedError, /ad_hoc/)
+      end
+
+      it "includes ad_hoc hint in process_record error" do
+        klass = Class.new(described_class)
+        expect { klass.new(dry_run: true).send(:process_record, nil) }.to raise_error(NotImplementedError, /ad_hoc/)
+      end
+    end
+
+    describe "header output" do
+      it "omits Blocks line for single block" do
+        output = StringIO.new
+        allow($stdout).to receive(:puts) { |msg| output.puts(msg) }
+
+        klass = Class.new(described_class) do
+          ad_hoc do
+            # single block
+          end
+        end
+        klass.call(dry_run: true)
+
+        expect(output.string).not_to include("Blocks:")
+      end
+
+      it "shows Blocks count for multiple blocks" do
+        output = StringIO.new
+        allow($stdout).to receive(:puts) { |msg| output.puts(msg) }
+
+        klass = Class.new(described_class) do
+          ad_hoc "First" do
+            # block 1
+          end
+          ad_hoc "Second" do
+            # block 2
+          end
+        end
+        klass.call(dry_run: true)
+
+        expect(output.string).to include("Blocks:      2")
+      end
+
+      it "shows per-block transaction label" do
+        output = StringIO.new
+        allow($stdout).to receive(:puts) { |msg| output.puts(msg) }
+
+        klass = Class.new(described_class) do
+          transaction :per_record
+
+          ad_hoc do
+            # block
+          end
+        end
+        klass.call(dry_run: true)
+
+        expect(output.string).to include("Transaction: per-block")
+      end
+    end
+  end
 end
