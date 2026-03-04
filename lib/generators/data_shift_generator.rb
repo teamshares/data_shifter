@@ -107,6 +107,7 @@ class DataShiftGenerator < Rails::Generators::NamedBase
 
   def _create_task_shift_file(underscored_name)
     model_comment = @model_name.present? ? "# #{@model_name}.find(...).update!(...)" : "# Model.find(...).update!(...)"
+    task_label = @class_name.underscore.humanize
 
     create_file "lib/data_shifts/#{@timestamp}_#{underscored_name}.rb", <<~RUBY
       # frozen_string_literal: true
@@ -120,7 +121,7 @@ class DataShiftGenerator < Rails::Generators::NamedBase
 
           transaction true # or :per_record for per-task transactions
 
-          task do
+          task "#{task_label}" do
             #{model_comment}
           end
         end
@@ -146,21 +147,21 @@ class DataShiftGenerator < Rails::Generators::NamedBase
         # Set up test records as needed
         # let(:#{record_arg}) { create(:#{record_arg}) }
 
-        describe "dry run" do
-          it "does not persist changes" do
-            expect do
-              result = run_data_shift(described_class, dry_run: true)
-              expect(result).to be_ok
-            end.not_to change(#{model_for_change}, :count)
+        context "when dry run" do
+          subject(:result) { run_data_shift(described_class, dry_run: true) }
+
+          it "succeeds without persisting changes" do
+            expect { result }.not_to change(#{model_for_change}, :count)
+            expect(result).to be_ok
           end
         end
 
-        describe "commit" do
+        context "when commit" do
+          subject(:result) { run_data_shift(described_class, commit: true) }
+
           it "applies changes" do
-            expect do
-              result = run_data_shift(described_class, commit: true)
-              expect(result).to be_ok
-            end.to change(#{model_for_change}, :count)
+            expect { result }.to change(#{model_for_change}, :count)
+            expect(result).to be_ok
           end
         end
       end
@@ -179,18 +180,16 @@ class DataShiftGenerator < Rails::Generators::NamedBase
 
         before { allow($stdout).to receive(:puts) }
 
-        describe "dry run" do
-          it "succeeds without persisting changes" do
-            result = run_data_shift(described_class, dry_run: true)
-            expect(result).to be_ok
-          end
+        context "when dry run" do
+          subject(:result) { run_data_shift(described_class, dry_run: true) }
+
+          it { is_expected.to be_ok }
         end
 
-        describe "commit" do
-          it "applies changes" do
-            result = run_data_shift(described_class, commit: true)
-            expect(result).to be_ok
-          end
+        context "when commit" do
+          subject(:result) { run_data_shift(described_class, commit: true) }
+
+          it { is_expected.to be_ok }
         end
       end
     RUBY
