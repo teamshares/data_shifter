@@ -5,7 +5,7 @@
 # Usage:
 #   rails g data_shift backfill_users
 #   rails g data_shift backfill_users --model=User
-#   rails g data_shift fix_user_123 --ad-hoc
+#   rails g data_shift fix_user_123 --task
 #
 class DataShiftGenerator < Rails::Generators::NamedBase
   class_option :model,
@@ -18,10 +18,10 @@ class DataShiftGenerator < Rails::Generators::NamedBase
                default: false,
                desc: "Generate RSpec file"
 
-  class_option :ad_hoc,
+  class_option :task,
                type: :boolean,
                default: false,
-               desc: "Generate an ad hoc shift (uses ad_hoc blocks instead of collection/process_record)"
+               desc: "Generate a task-based shift (uses task blocks instead of collection/process_record)"
 
   def check_for_naming_conflict
     underscored_name = name.underscore
@@ -50,8 +50,8 @@ class DataShiftGenerator < Rails::Generators::NamedBase
     model_name_raw = options[:model].to_s.strip
     @model_name = model_name_raw.present? ? model_name_raw.underscore.singularize.camelize : nil
 
-    if options[:ad_hoc]
-      _create_ad_hoc_shift_file(underscored_name)
+    if options[:task]
+      _create_task_shift_file(underscored_name)
     else
       _create_standard_shift_file(underscored_name)
     end
@@ -63,8 +63,8 @@ class DataShiftGenerator < Rails::Generators::NamedBase
 
     underscored_name = name.underscore
 
-    if options[:ad_hoc]
-      _create_ad_hoc_spec_file(underscored_name)
+    if options[:task]
+      _create_task_spec_file(underscored_name)
     else
       _create_standard_spec_file(underscored_name)
     end
@@ -105,7 +105,7 @@ class DataShiftGenerator < Rails::Generators::NamedBase
     RUBY
   end
 
-  def _create_ad_hoc_shift_file(underscored_name)
+  def _create_task_shift_file(underscored_name)
     model_comment = @model_name.present? ? "# #{@model_name}.find(...).update!(...)" : "# Model.find(...).update!(...)"
 
     create_file "lib/data_shifts/#{@timestamp}_#{underscored_name}.rb", <<~RUBY
@@ -118,9 +118,9 @@ class DataShiftGenerator < Rails::Generators::NamedBase
         class #{@class_name} < DataShifter::Shift
           description "TODO: Describe this shift"
 
-          transaction true # or :per_record for per-block transactions
+          transaction true # or :per_record for per-task transactions
 
-          ad_hoc do
+          task do
             #{model_comment}
           end
         end
@@ -167,7 +167,7 @@ class DataShiftGenerator < Rails::Generators::NamedBase
     RUBY
   end
 
-  def _create_ad_hoc_spec_file(underscored_name)
+  def _create_task_spec_file(underscored_name)
     create_file "spec/lib/data_shifts/#{underscored_name}_spec.rb", <<~RUBY
       # frozen_string_literal: true
 

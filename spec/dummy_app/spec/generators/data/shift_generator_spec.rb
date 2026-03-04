@@ -249,14 +249,14 @@ RSpec.describe DataShiftGenerator do
     end
   end
 
-  describe "with --ad-hoc option" do
-    before { run_generator %w[fix_user_123 --ad-hoc] }
+  describe "with --task option" do
+    before { run_generator %w[fix_user_123 --task] }
 
-    it "creates a shift file with ad_hoc block" do
+    it "creates a shift file with task block" do
       file = Dir.glob("#{destination_root}/lib/data_shifts/*_fix_user_123.rb").first
       content = File.read(file)
 
-      expect(content).to include("ad_hoc do")
+      expect(content).to include("task do")
     end
 
     it "does not include collection method" do
@@ -273,14 +273,14 @@ RSpec.describe DataShiftGenerator do
       expect(content).not_to include("def process_record")
     end
 
-    it "includes transaction DSL with per-block comment" do
+    it "includes transaction DSL with per-task comment" do
       file = Dir.glob("#{destination_root}/lib/data_shifts/*_fix_user_123.rb").first
       content = File.read(file)
 
-      expect(content).to include("transaction true # or :per_record for per-block transactions")
+      expect(content).to include("transaction true # or :per_record for per-task transactions")
     end
 
-    it "includes placeholder comment inside ad_hoc block" do
+    it "includes placeholder comment inside task block" do
       file = Dir.glob("#{destination_root}/lib/data_shifts/*_fix_user_123.rb").first
       content = File.read(file)
 
@@ -293,7 +293,7 @@ RSpec.describe DataShiftGenerator do
     end
 
     context "with --model option" do
-      before { run_generator %w[fix_user_456 --ad-hoc --model=User] }
+      before { run_generator %w[fix_user_456 --task --model=User] }
 
       it "includes model-specific placeholder comment" do
         file = Dir.glob("#{destination_root}/lib/data_shifts/*_fix_user_456.rb").first
@@ -304,11 +304,11 @@ RSpec.describe DataShiftGenerator do
     end
   end
 
-  describe "ad-hoc spec file generation" do
-    context "when rspec is enabled and --spec --ad-hoc are passed" do
+  describe "task spec file generation" do
+    context "when rspec is enabled and --spec --task are passed" do
       before do
         allow_any_instance_of(DataShiftGenerator).to receive(:rspec_enabled?).and_return(true)
-        run_generator %w[fix_orphan_records --ad-hoc --spec]
+        run_generator %w[fix_orphan_records --task --spec]
       end
 
       it "creates a spec file" do

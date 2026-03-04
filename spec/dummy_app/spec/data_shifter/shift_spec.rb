@@ -933,63 +933,63 @@ RSpec.describe DataShifter::Shift do
     end
   end
 
-  describe "ad_hoc DSL" do
+  describe "task DSL" do
     describe "basic functionality" do
-      it "stores blocks in _ad_hoc_blocks" do
+      it "stores blocks in _task_blocks" do
         klass = Class.new(described_class) do
-          ad_hoc "First" do
+          task "First" do
             # block 1
           end
-          ad_hoc "Second" do
+          task "Second" do
             # block 2
           end
         end
-        expect(klass._ad_hoc_blocks.size).to eq(2)
-        expect(klass._ad_hoc_blocks[0][:label]).to eq("First")
-        expect(klass._ad_hoc_blocks[1][:label]).to eq("Second")
+        expect(klass._task_blocks.size).to eq(2)
+        expect(klass._task_blocks[0][:label]).to eq("First")
+        expect(klass._task_blocks[1][:label]).to eq("Second")
       end
 
       it "allows blocks without labels" do
         klass = Class.new(described_class) do
-          ad_hoc do
+          task do
             # no label
           end
         end
-        expect(klass._ad_hoc_blocks.size).to eq(1)
-        expect(klass._ad_hoc_blocks[0][:label]).to be_nil
+        expect(klass._task_blocks.size).to eq(1)
+        expect(klass._task_blocks[0][:label]).to be_nil
       end
 
       it "raises if no block given" do
         expect do
           Class.new(described_class) do
-            ad_hoc "Missing block"
+            task "Missing block"
           end
-        end.to raise_error(ArgumentError, /ad_hoc requires a block/)
+        end.to raise_error(ArgumentError, /task requires a block/)
       end
 
       it "does not share blocks between subclasses" do
         parent = Class.new(described_class) do
-          ad_hoc "Parent" do
+          task "Parent" do
             # parent block
           end
         end
         child = Class.new(parent) do
-          ad_hoc "Child" do
+          task "Child" do
             # child block
           end
         end
-        expect(parent._ad_hoc_blocks.size).to eq(1)
-        expect(child._ad_hoc_blocks.size).to eq(2)
+        expect(parent._task_blocks.size).to eq(1)
+        expect(child._task_blocks.size).to eq(2)
       end
     end
 
     describe "execution" do
       let(:record) { create(:user) }
 
-      it "runs ad_hoc blocks and gets dry_run protection" do
+      it "runs task blocks and gets dry_run protection" do
         rec = record
         klass = Class.new(described_class) do
-          ad_hoc "Update user" do
+          task "Update user" do
             User.find(rec.id).update!(time_zone: "Pacific Time (US & Canada)")
           end
         end
@@ -1000,7 +1000,7 @@ RSpec.describe DataShifter::Shift do
       it "applies changes when dry_run is false" do
         rec = record
         klass = Class.new(described_class) do
-          ad_hoc "Update user" do
+          task "Update user" do
             User.find(rec.id).update!(time_zone: "Pacific Time (US & Canada)")
           end
         end
@@ -1012,13 +1012,13 @@ RSpec.describe DataShifter::Shift do
       it "runs multiple blocks in order" do
         execution_order = []
         klass = Class.new(described_class) do
-          ad_hoc "First" do
+          task "First" do
             execution_order << 1
           end
-          ad_hoc "Second" do
+          task "Second" do
             execution_order << 2
           end
-          ad_hoc "Third" do
+          task "Third" do
             execution_order << 3
           end
           define_singleton_method(:execution_order) { execution_order }
@@ -1031,7 +1031,7 @@ RSpec.describe DataShifter::Shift do
         rec = record
         found_record = nil
         klass = Class.new(described_class) do
-          ad_hoc do
+          task do
             found_record = find_exactly!(User, [rec.id]).first
           end
           define_singleton_method(:found_record) { found_record }
@@ -1043,7 +1043,7 @@ RSpec.describe DataShifter::Shift do
       it "gives blocks access to dry_run?" do
         dry_run_value = nil
         klass = Class.new(described_class) do
-          ad_hoc do
+          task do
             dry_run_value = dry_run?
           end
           define_singleton_method(:dry_run_value) { dry_run_value }
@@ -1062,10 +1062,10 @@ RSpec.describe DataShifter::Shift do
         allow($stdout).to receive(:puts) { |msg| output.puts(msg) }
 
         klass = Class.new(described_class) do
-          ad_hoc "Block 1" do
+          task "Task 1" do
             # success
           end
-          ad_hoc "Block 2" do
+          task "Task 2" do
             # success
           end
         end
@@ -1075,18 +1075,18 @@ RSpec.describe DataShifter::Shift do
         expect(output.string).to include("Succeeded:   2")
       end
 
-      it "handles skip! in ad_hoc blocks" do
+      it "handles skip! in task blocks" do
         output = StringIO.new
         allow($stdout).to receive(:puts) { |msg| output.puts(msg) }
 
         klass = Class.new(described_class) do
-          ad_hoc "Block 1" do
+          task "Task 1" do
             # success
           end
-          ad_hoc "Block 2" do
+          task "Task 2" do
             skip!("not needed")
           end
-          ad_hoc "Block 3" do
+          task "Task 3" do
             # success
           end
         end
@@ -1102,7 +1102,7 @@ RSpec.describe DataShifter::Shift do
     describe "failure handling" do
       it "re-raises with label prefix when block fails" do
         klass = Class.new(described_class) do
-          ad_hoc "Fix user A" do
+          task "Fix user A" do
             raise "something went wrong"
           end
         end
@@ -1113,7 +1113,7 @@ RSpec.describe DataShifter::Shift do
 
       it "reports failure without prefix when no label" do
         klass = Class.new(described_class) do
-          ad_hoc do
+          task do
             raise "unlabeled error"
           end
         end
@@ -1127,7 +1127,7 @@ RSpec.describe DataShifter::Shift do
         allow($stdout).to receive(:puts) { |msg| output.puts(msg) }
 
         klass = Class.new(described_class) do
-          ad_hoc "Failing block" do
+          task "Failing task" do
             raise "boom"
           end
         end
@@ -1138,10 +1138,10 @@ RSpec.describe DataShifter::Shift do
     end
 
     describe "conflict validation" do
-      it "raises ArgumentError when ad_hoc blocks and collection are both defined" do
+      it "raises ArgumentError when task blocks and collection are both defined" do
         klass = Class.new(described_class) do
-          ad_hoc "Do something" do
-            # ad hoc logic
+          task "Do something" do
+            # task logic
           end
 
           def collection
@@ -1151,13 +1151,13 @@ RSpec.describe DataShifter::Shift do
         result = klass.call(dry_run: true)
         expect(result).not_to be_ok
         expect(result.exception).to be_a(ArgumentError)
-        expect(result.exception.message).to include("Cannot use ad_hoc blocks and override collection or process_record")
+        expect(result.exception.message).to include("Cannot use task blocks and override collection or process_record")
       end
 
-      it "raises ArgumentError when ad_hoc blocks and process_record are both defined" do
+      it "raises ArgumentError when task blocks and process_record are both defined" do
         klass = Class.new(described_class) do
-          ad_hoc "Do something" do
-            # ad hoc logic
+          task "Do something" do
+            # task logic
           end
 
           def process_record(_record)
@@ -1167,7 +1167,7 @@ RSpec.describe DataShifter::Shift do
         result = klass.call(dry_run: true)
         expect(result).not_to be_ok
         expect(result.exception).to be_a(ArgumentError)
-        expect(result.exception.message).to include("Cannot use ad_hoc blocks and override collection or process_record")
+        expect(result.exception.message).to include("Cannot use task blocks and override collection or process_record")
       end
     end
 
@@ -1181,10 +1181,10 @@ RSpec.describe DataShifter::Shift do
           rec_b = record_b
 
           klass = Class.new(described_class) do
-            ad_hoc "Update A" do
+            task "Update A" do
               User.find(rec_a.id).update!(time_zone: "Pacific Time (US & Canada)")
             end
-            ad_hoc "Update B and fail" do
+            task "Update B and fail" do
               User.find(rec_b.id).update!(time_zone: "Pacific Time (US & Canada)")
               raise "boom"
             end
@@ -1196,18 +1196,18 @@ RSpec.describe DataShifter::Shift do
         end
       end
 
-      context "with per_record (per-block) transaction" do
-        it "persists successful blocks when later block fails" do
+      context "with per_record (per-task) transaction" do
+        it "persists successful tasks when later task fails" do
           rec_a = record_a
           rec_b = record_b
 
           klass = Class.new(described_class) do
             transaction :per_record
 
-            ad_hoc "Update A" do
+            task "Update A" do
               User.find(rec_a.id).update!(time_zone: "Pacific Time (US & Canada)")
             end
-            ad_hoc "Update B and fail" do
+            task "Update B and fail" do
               User.find(rec_b.id).update!(time_zone: "Pacific Time (US & Canada)")
               raise "boom"
             end
@@ -1224,7 +1224,7 @@ RSpec.describe DataShifter::Shift do
           klass = Class.new(described_class) do
             transaction :per_record
 
-            ad_hoc "Update A" do
+            task "Update A" do
               User.find(rec_a.id).update!(time_zone: "Pacific Time (US & Canada)")
             end
           end
@@ -1238,10 +1238,10 @@ RSpec.describe DataShifter::Shift do
     describe "interrupt handling" do
       it "handles Ctrl-C and prints summary" do
         klass = Class.new(described_class) do
-          ad_hoc "First" do
+          task "First" do
             # success
           end
-          ad_hoc "Second" do
+          task "Second" do
             raise Interrupt
           end
         end
@@ -1252,63 +1252,63 @@ RSpec.describe DataShifter::Shift do
     end
 
     describe "NotImplementedError messages" do
-      it "includes ad_hoc hint in collection error" do
+      it "includes task hint in collection error" do
         klass = Class.new(described_class)
-        expect { klass.new(dry_run: true).send(:collection) }.to raise_error(NotImplementedError, /ad_hoc/)
+        expect { klass.new(dry_run: true).send(:collection) }.to raise_error(NotImplementedError, /task/)
       end
 
-      it "includes ad_hoc hint in process_record error" do
+      it "includes task hint in process_record error" do
         klass = Class.new(described_class)
-        expect { klass.new(dry_run: true).send(:process_record, nil) }.to raise_error(NotImplementedError, /ad_hoc/)
+        expect { klass.new(dry_run: true).send(:process_record, nil) }.to raise_error(NotImplementedError, /task/)
       end
     end
 
     describe "header output" do
-      it "omits Blocks line for single block" do
+      it "omits Tasks line for single task" do
         output = StringIO.new
         allow($stdout).to receive(:puts) { |msg| output.puts(msg) }
 
         klass = Class.new(described_class) do
-          ad_hoc do
-            # single block
+          task do
+            # single task
           end
         end
         klass.call(dry_run: true)
 
-        expect(output.string).not_to include("Blocks:")
+        expect(output.string).not_to include("Tasks:")
       end
 
-      it "shows Blocks count for multiple blocks" do
+      it "shows Tasks count for multiple tasks" do
         output = StringIO.new
         allow($stdout).to receive(:puts) { |msg| output.puts(msg) }
 
         klass = Class.new(described_class) do
-          ad_hoc "First" do
-            # block 1
+          task "First" do
+            # task 1
           end
-          ad_hoc "Second" do
-            # block 2
+          task "Second" do
+            # task 2
           end
         end
         klass.call(dry_run: true)
 
-        expect(output.string).to include("Blocks:      2")
+        expect(output.string).to include("Tasks:       2")
       end
 
-      it "shows per-block transaction label" do
+      it "shows per-task transaction label" do
         output = StringIO.new
         allow($stdout).to receive(:puts) { |msg| output.puts(msg) }
 
         klass = Class.new(described_class) do
           transaction :per_record
 
-          ad_hoc do
-            # block
+          task do
+            # task
           end
         end
         klass.call(dry_run: true)
 
-        expect(output.string).to include("Transaction: per-block")
+        expect(output.string).to include("Transaction: per-task")
       end
     end
   end

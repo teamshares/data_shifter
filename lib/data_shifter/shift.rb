@@ -67,7 +67,7 @@ module DataShifter
     class_attribute :_throttle_interval, default: nil
     class_attribute :_allow_external_requests, default: [], instance_accessor: false
     class_attribute :_suppress_repeated_logs, default: nil, instance_accessor: false
-    class_attribute :_ad_hoc_blocks, default: [], instance_accessor: false
+    class_attribute :_task_blocks, default: [], instance_accessor: false
 
     # Internal exception used by skip! to abort the current process_record.
     # Rescued in _process_one; not propagated.
@@ -129,19 +129,19 @@ module DataShifter
         self._suppress_repeated_logs = !!enabled
       end
 
-      # Define an ad hoc block to run instead of collection/process_record.
+      # Define a task block to run instead of collection/process_record.
       # Multiple blocks run in sequence; labels appear in errors and summary.
       # Example:
-      #   ad_hoc "Fix user A" do
+      #   task "Fix user A" do
       #     User.find(123).update!(...)
       #   end
-      #   ad_hoc "Fix user B" do
+      #   task "Fix user B" do
       #     User.find(456).update!(...)
       #   end
-      def ad_hoc(label = nil, &block)
-        raise ArgumentError, "ad_hoc requires a block" unless block_given?
+      def task(label = nil, &block)
+        raise ArgumentError, "task requires a block" unless block_given?
 
-        self._ad_hoc_blocks = (_ad_hoc_blocks || []).dup + [{ label: label.presence, block: }]
+        self._task_blocks = (_task_blocks || []).dup + [{ label: label.presence, block: }]
       end
 
       def run!
@@ -155,8 +155,8 @@ module DataShifter
     # --- Public API (intentionally exposed to subclasses) ---
 
     def call
-      if self.class._ad_hoc_blocks.any?
-        _run_ad_hoc_blocks
+      if self.class._task_blocks.any?
+        _run_task_blocks
       else
         _for_each_record_in(collection) { |record| process_record(record) }
       end
@@ -280,12 +280,12 @@ module DataShifter
 
     def collection
       raise NotImplementedError,
-            "#{self.class.name}: override `collection` (or use one or more `ad_hoc 'label' do ... end` blocks for ad hoc shifts)."
+            "#{self.class.name}: override `collection` (or use one or more `task 'label' do ... end` blocks for targeted shifts)."
     end
 
     def process_record(_record)
       raise NotImplementedError,
-            "#{self.class.name}: override `process_record` (or use one or more `ad_hoc 'label' do ... end` blocks for ad hoc shifts)."
+            "#{self.class.name}: override `process_record` (or use one or more `task 'label' do ... end` blocks for targeted shifts)."
     end
 
     # --- Record iteration ---
@@ -475,14 +475,14 @@ module DataShifter
       raise Interrupt
     end
 
-    # --- Ad hoc block execution ---
+    # --- Task block execution ---
 
-    def _run_ad_hoc_blocks
+    def _run_task_blocks
       _validate_no_collection_or_process_record_override!
 
-      blocks = self.class._ad_hoc_blocks
+      blocks = self.class._task_blocks
       _reset_tracking
-      _print_ad_hoc_header(blocks.size)
+      _print_task_header(blocks.size)
 
       ActiveSupport::IsolatedExecutionState[:_data_shifter_current_run] = self
       status_proc = proc { ActiveSupport::IsolatedExecutionState[:_data_shifter_current_run]&.send(:_print_progress) }
@@ -490,9 +490,9 @@ module DataShifter
 
       begin
         blocks.each do |entry|
-          _execute_ad_hoc_block(entry)
+          _execute_task_block(entry)
         end
-        fail! "#{@stats[:failed]} block(s) failed" if @errors.any?
+        fail! "#{@stats[:failed]} task(s) failed" if @errors.any?
       rescue Interrupt
         _handle_interrupt
       ensure
@@ -508,27 +508,27 @@ module DataShifter
       return unless collection_overridden || process_record_overridden
 
       raise ArgumentError,
-            "Cannot use ad_hoc blocks and override collection or process_record; use one mode or the other."
+            "Cannot use task blocks and override collection or process_record; use one mode or the other."
     end
 
     def instance_method_owner(method_name)
       self.class.instance_method(method_name).owner
     end
 
-    def _execute_ad_hoc_block(entry)
+    def _execute_task_block(entry)
       label = entry[:label]
       block = entry[:block]
 
       if _transaction_mode == :per_record && !dry_run?
         ::ActiveRecord::Base.transaction do
-          _run_single_ad_hoc_block(label, block)
+          _run_single_task_block(label, block)
         end
       else
-        _run_single_ad_hoc_block(label, block)
+        _run_single_task_block(label, block)
       end
     end
 
-    def _run_single_ad_hoc_block(label, block)
+    def _run_single_task_block(label, block)
       instance_exec(&block)
       @stats[:processed] += 1
       @stats[:succeeded] += 1
@@ -537,7 +537,7 @@ module DataShifter
       nil
     rescue StandardError => e
       @stats[:failed] += 1
-      identifier = label || "ad_hoc"
+      identifier = label || "task"
       error_text = _format_error(e)
       @errors << { record: identifier, error: error_text, backtrace: e.backtrace&.first(3) }
       _log_error(identifier, error_text)
@@ -546,8 +546,8 @@ module DataShifter
       raise e.class, new_message, e.backtrace
     end
 
-    def _print_ad_hoc_header(block_count)
-      Internal::Output.print_ad_hoc_header(
+    def _print_task_header(block_count)
+      Internal::Output.print_task_header(
         io: $stdout,
         shift_class: self.class,
         block_count:,

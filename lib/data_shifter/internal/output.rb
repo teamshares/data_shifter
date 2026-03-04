@@ -32,15 +32,15 @@ module DataShifter
         io.puts ""
       end
 
-      def print_ad_hoc_header(io:, shift_class:, block_count:, dry_run:, transaction_mode:, status_interval:)
+      def print_task_header(io:, shift_class:, block_count:, dry_run:, transaction_mode:, status_interval:)
         io.puts ""
         io.puts "=" * 60
         io.puts shift_class.name || "DataShifter::Shift (anonymous)"
         io.puts "\"#{shift_class.description}\"" if shift_class.description.present?
         io.puts "-" * 60
         io.puts "Mode:        #{dry_run ? "DRY RUN (no changes will be persisted)" : "LIVE"}"
-        io.puts "Blocks:      #{block_count}" if block_count >= 2
-        io.puts "Transaction: #{ad_hoc_transaction_label(transaction_mode)}"
+        io.puts "Tasks:       #{block_count}" if block_count >= 2
+        io.puts "Transaction: #{task_transaction_label(transaction_mode)}"
 
         status_line = build_status_line(status_interval)
         io.puts "Status:      #{status_line} for live progress (no abort)" if status_line
@@ -49,9 +49,9 @@ module DataShifter
         io.puts ""
       end
 
-      def ad_hoc_transaction_label(mode)
+      def task_transaction_label(mode)
         case mode
-        when :per_record then "per-block"
+        when :per_record then "per-task"
         else TRANSACTION_MODE_LABELS[mode]
         end
       end
