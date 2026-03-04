@@ -1081,6 +1081,14 @@ RSpec.describe DataShifter::Shift do
     end
 
     describe "stats tracking" do
+      around do |example|
+        original_no_color = ENV["NO_COLOR"]
+        ENV["NO_COLOR"] = "1"
+        example.run
+      ensure
+        ENV["NO_COLOR"] = original_no_color
+      end
+
       it "increments processed and succeeded for completed blocks" do
         output = StringIO.new
         allow($stdout).to receive(:puts) { |msg| output.puts(msg) }
@@ -1147,17 +1155,23 @@ RSpec.describe DataShifter::Shift do
       end
 
       it "tracks failed count in summary" do
-        output = StringIO.new
-        allow($stdout).to receive(:puts) { |msg| output.puts(msg) }
+        original_no_color = ENV["NO_COLOR"]
+        ENV["NO_COLOR"] = "1"
+        begin
+          output = StringIO.new
+          allow($stdout).to receive(:puts) { |msg| output.puts(msg) }
 
-        klass = Class.new(described_class) do
-          task "Failing task" do
-            raise "boom"
+          klass = Class.new(described_class) do
+            task "Failing task" do
+              raise "boom"
+            end
           end
-        end
-        klass.call(dry_run: true)
+          klass.call(dry_run: true)
 
-        expect(output.string).to include("Failed:      1")
+          expect(output.string).to include("Failed:      1")
+        ensure
+          ENV["NO_COLOR"] = original_no_color
+        end
       end
     end
 
