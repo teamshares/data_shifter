@@ -67,8 +67,8 @@ module DataShifter
         io.puts "Duration:    #{elapsed}s"
         io.puts "Processed:   #{stats[:processed]}"
         io.puts "Succeeded:   #{stats[:succeeded]}"
-        io.puts "Failed:      #{stats[:failed]}"
-        io.puts "Skipped:     #{stats[:skipped]}"
+        io.puts "Failed:      #{stats[:failed]}" if stats[:failed].positive?
+        io.puts "Skipped:     #{stats[:skipped]}" if stats[:skipped].positive?
         print_skip_reasons(io:, skip_reasons:) if skip_reasons.any?
 
         print_errors(io:, errors:) if errors.any?
@@ -99,8 +99,8 @@ module DataShifter
         io.puts "Duration:    #{elapsed}s"
         io.puts "Processed:   #{stats[:processed]}"
         io.puts "Succeeded:   #{stats[:succeeded]}"
-        io.puts "Failed:      #{stats[:failed]}"
-        io.puts "Skipped:     #{stats[:skipped]}"
+        io.puts "Failed:      #{stats[:failed]}" if stats[:failed].positive?
+        io.puts "Skipped:     #{stats[:skipped]}" if stats[:skipped].positive?
         print_skip_reasons(io:, skip_reasons:) if skip_reasons.any?
 
         print_errors(io:, errors:) if errors.any?

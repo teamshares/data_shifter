@@ -529,6 +529,7 @@ module DataShifter
     end
 
     def _run_single_task_block(label, block)
+      log ">> #{label}\n" if label.present?
       instance_exec(&block)
       @stats[:processed] += 1
       @stats[:succeeded] += 1
