@@ -1054,6 +1054,30 @@ RSpec.describe DataShifter::Shift do
         klass.call(dry_run: false)
         expect(dry_run_value).to be false
       end
+
+      it "gives blocks access to private helper methods" do
+        rec = record
+        helper_calls = []
+        klass = Class.new(described_class) do
+          task "First task" do
+            helper_calls << target_user.id
+          end
+
+          task "Second task" do
+            helper_calls << target_user.id
+          end
+
+          define_singleton_method(:helper_calls) { helper_calls }
+
+          private
+
+          define_method(:target_user) do
+            @target_user ||= User.find(rec.id)
+          end
+        end
+        klass.call(dry_run: true)
+        expect(helper_calls).to eq([record.id, record.id])
+      end
     end
 
     describe "stats tracking" do

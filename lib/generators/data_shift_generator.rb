@@ -5,7 +5,7 @@
 # Usage:
 #   rails g data_shift backfill_users
 #   rails g data_shift backfill_users --model=User
-#   rails g data_shift fix_user_123 --task
+#   rails g data_shift fix_order_1234 --task
 #
 class DataShiftGenerator < Rails::Generators::NamedBase
   class_option :model,

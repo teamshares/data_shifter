@@ -530,8 +530,7 @@ module DataShifter
     end
 
     def _run_single_task_block(label, block)
-      puts ""
-      puts Internal::Colors.cyan(">> #{label} <<\n\n") if label.present?
+      puts Internal::Colors.cyan(">> #{label} <<") if label.present?
       instance_exec(&block)
       @stats[:processed] += 1
       @stats[:succeeded] += 1
