@@ -9,6 +9,7 @@ require_relative "internal/record_utils"
 require_relative "internal/progress_bar"
 require_relative "internal/side_effect_guards"
 require_relative "internal/log_deduplicator"
+require_relative "internal/colors"
 
 # Base class for data shifts. Dry-run by default, progress bars, transaction modes, consistent summaries.
 #
@@ -183,7 +184,7 @@ module DataShifter
     end
 
     def log(message)
-      puts message
+      puts Internal::Colors.dim(message)
     end
 
     private
@@ -529,7 +530,8 @@ module DataShifter
     end
 
     def _run_single_task_block(label, block)
-      log ">> #{label}\n" if label.present?
+      puts ""
+      puts Internal::Colors.cyan(">> #{label} <<\n\n") if label.present?
       instance_exec(&block)
       @stats[:processed] += 1
       @stats[:succeeded] += 1
