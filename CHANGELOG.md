@@ -4,6 +4,20 @@
 
 * N/A
 
+## [0.3.0]
+
+### Added
+
+- **Task-based shifts**: New `task` DSL for targeted, one-off changes without the `collection`/`process_record` pattern. Define one or more `task "label" do ... end` blocks that run in sequence with shared transaction and dry-run semantics. Labels appear in output and error messages.
+- **Generator `--task` option**: `rails g data_shift fix_order_1234 --task` generates a shift with a `task` block instead of `collection`/`process_record`.
+- **Colorized CLI output**: Headers, summaries, and status output now use ANSI colors for better readability. Colors are automatically disabled when output is not a TTY or when `NO_COLOR` environment variable is set.
+- **Cleaner summaries**: `Failed` and `Skipped` lines are now omitted from summaries when their values are zero.
+
+### Changed
+
+- **Improved error messages**: `NotImplementedError` messages for `collection` and `process_record` now suggest using `task` blocks as an alternative.
+- **Task labels logged on execution**: When running task-based shifts, each labeled task logs its name (`>> label`) when it starts.
+
 ## [0.2.0]
 
 ### Added

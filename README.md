@@ -35,7 +35,9 @@ COMMIT=1 rake data:shift:backfill_foo
 
 ## Defining a shift
 
-Typical shifts implement:
+### Collection-based shifts (typical)
+
+For systemic migrations across many records, implement:
 
 - **`collection`**: an `ActiveRecord::Relation` (uses `find_each`) or an `Array`/Enumerable
 - **`process_record(record)`**: applies the change for one record
@@ -56,9 +58,48 @@ module DataShifts
 end
 ```
 
+### Task-based shifts (targeted, one-off changes)
+
+For targeted changes to specific records (e.g. fixing a bug for particular IDs), use `task` blocks instead:
+
+```ruby
+module DataShifts
+  class FixOrderDiscrepancies < DataShifter::Shift
+    description "Fix order #1234 shipping and billing issues"
+
+    task "Correct shipping address" do
+      order.update!(shipping_address: "123 Main St")
+    end
+
+    task "Apply missing discount" do
+      order.update!(discount_cents: 500)
+    end
+
+    private
+
+    def order
+      @order ||= Order.find(1234)
+    end
+  end
+end
+```
+
+Task blocks run in the context of the shift instance, so they have access to private helper methods, `dry_run?`, `log`, `skip!`, `find_exactly!`, and any other instance methods you define. Use private methods to DRY up shared lookups across tasks.
+
+Task blocks:
+
+- Run in sequence within the same lifecycle (transaction, dry run protection, summary)
+- Default to single transaction (all tasks commit or roll back together); use `transaction :per_record` for per-task transactions
+
+Generate a task-based shift with:
+
+```bash
+bin/rails generate data_shift fix_order_1234 --task
+```
+
 ## Dry run vs commit
 
-Shifts run in **dry run** mode by default. In the automatic transaction modes (`transaction :single` / `true`, and `transaction :per_record`), DB changes are rolled back automatically.
+Shifts run in **dry run** mode by default. DB changes are always rolled back in dry run mode, regardless of transaction setting.
 
 - **Dry run (default)**: `rake data:shift:backfill_foo`
 - **Commit**: `COMMIT=1 rake data:shift:backfill_foo`
@@ -277,6 +318,7 @@ end
 | `bin/rails generate data_shift backfill_foo` | `lib/data_shifts/<timestamp>_backfill_foo.rb` with a `DataShifts::BackfillFoo` class |
 | `bin/rails generate data_shift backfill_users --model User` | Same, with `User.all` in `collection` and `process_record(user)` |
 | `bin/rails generate data_shift backfill_users --spec` | Also generates `spec/lib/data_shifts/backfill_users_spec.rb` when RSpec is enabled |
+| `bin/rails generate data_shift fix_order_1234 --task` | Generates a shift with a `task` block instead of `collection`/`process_record` |
 
 The generator refuses to create a second shift if it would produce a duplicate rake task name.
 

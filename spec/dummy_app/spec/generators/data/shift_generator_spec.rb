@@ -201,12 +201,12 @@ RSpec.describe DataShiftGenerator do
         expect(content).to include("include DataShifter::SpecHelper")
       end
 
-      it "includes dry run and commit test stubs" do
+      it "includes dry run and commit context blocks" do
         spec_file = "#{destination_root}/spec/lib/data_shifts/backfill_posts_spec.rb"
         content = File.read(spec_file)
 
-        expect(content).to include('describe "dry run"')
-        expect(content).to include('describe "commit"')
+        expect(content).to include('context "when dry run"')
+        expect(content).to include('context "when commit"')
         expect(content).to include("run_data_shift(described_class, dry_run: true)")
         expect(content).to include("run_data_shift(described_class, commit: true)")
       end
@@ -245,6 +245,128 @@ RSpec.describe DataShiftGenerator do
       it "does not create a spec file" do
         spec_file = "#{destination_root}/spec/lib/data_shifts/backfill_items_spec.rb"
         expect(File.exist?(spec_file)).to be false
+      end
+    end
+  end
+
+  describe "with --task option" do
+    before { run_generator %w[fix_user_123 --task] }
+
+    it "creates a shift file with labeled task block" do
+      file = Dir.glob("#{destination_root}/lib/data_shifts/*_fix_user_123.rb").first
+      content = File.read(file)
+
+      expect(content).to match(/task "Fix user\d*" do/)
+    end
+
+    it "does not include collection method" do
+      file = Dir.glob("#{destination_root}/lib/data_shifts/*_fix_user_123.rb").first
+      content = File.read(file)
+
+      expect(content).not_to include("def collection")
+    end
+
+    it "does not include process_record method" do
+      file = Dir.glob("#{destination_root}/lib/data_shifts/*_fix_user_123.rb").first
+      content = File.read(file)
+
+      expect(content).not_to include("def process_record")
+    end
+
+    it "includes transaction DSL with per-task comment" do
+      file = Dir.glob("#{destination_root}/lib/data_shifts/*_fix_user_123.rb").first
+      content = File.read(file)
+
+      expect(content).to include("transaction true # or :per_record for per-task transactions")
+    end
+
+    it "includes placeholder comment inside task block" do
+      file = Dir.glob("#{destination_root}/lib/data_shifts/*_fix_user_123.rb").first
+      content = File.read(file)
+
+      expect(content).to include("# Model.find(...).update!(...)")
+    end
+
+    it "generates valid Ruby syntax" do
+      file = Dir.glob("#{destination_root}/lib/data_shifts/*_fix_user_123.rb").first
+      expect { RubyVM::InstructionSequence.compile_file(file) }.not_to raise_error
+    end
+
+    context "with --model option" do
+      before { run_generator %w[fix_user_456 --task --model=User] }
+
+      it "includes model-specific placeholder comment" do
+        file = Dir.glob("#{destination_root}/lib/data_shifts/*_fix_user_456.rb").first
+        content = File.read(file)
+
+        expect(content).to include("# User.find(...).update!(...)")
+      end
+    end
+  end
+
+  describe "task spec file generation" do
+    context "when rspec is enabled and --spec --task are passed" do
+      before do
+        allow_any_instance_of(DataShiftGenerator).to receive(:rspec_enabled?).and_return(true)
+        run_generator %w[fix_orphan_records --task --spec]
+      end
+
+      it "creates a spec file" do
+        spec_file = "#{destination_root}/spec/lib/data_shifts/fix_orphan_records_spec.rb"
+        expect(File.exist?(spec_file)).to be true
+      end
+
+      it "uses context blocks instead of describe" do
+        spec_file = "#{destination_root}/spec/lib/data_shifts/fix_orphan_records_spec.rb"
+        content = File.read(spec_file)
+
+        expect(content).to include('context "when dry run"')
+        expect(content).to include('context "when commit"')
+        expect(content).not_to include('describe "dry run"')
+      end
+
+      it "defines subject(:result) in each context" do
+        spec_file = "#{destination_root}/spec/lib/data_shifts/fix_orphan_records_spec.rb"
+        content = File.read(spec_file)
+
+        expect(content).to include("subject(:result)")
+      end
+
+      it "uses is_expected matcher" do
+        spec_file = "#{destination_root}/spec/lib/data_shifts/fix_orphan_records_spec.rb"
+        content = File.read(spec_file)
+
+        expect(content).to include("it { is_expected.to be_ok }")
+      end
+
+      it "generates valid Ruby syntax" do
+        spec_file = "#{destination_root}/spec/lib/data_shifts/fix_orphan_records_spec.rb"
+        expect { RubyVM::InstructionSequence.compile_file(spec_file) }.not_to raise_error
+      end
+    end
+  end
+
+  describe "standard spec file generation structure" do
+    context "when rspec is enabled and --spec is passed" do
+      before do
+        allow_any_instance_of(DataShiftGenerator).to receive(:rspec_enabled?).and_return(true)
+        run_generator %w[backfill_data --spec]
+      end
+
+      it "uses context blocks instead of describe" do
+        spec_file = "#{destination_root}/spec/lib/data_shifts/backfill_data_spec.rb"
+        content = File.read(spec_file)
+
+        expect(content).to include('context "when dry run"')
+        expect(content).to include('context "when commit"')
+        expect(content).not_to include('describe "dry run"')
+      end
+
+      it "defines subject(:result) in each context" do
+        spec_file = "#{destination_root}/spec/lib/data_shifts/backfill_data_spec.rb"
+        content = File.read(spec_file)
+
+        expect(content).to include("subject(:result)")
       end
     end
   end

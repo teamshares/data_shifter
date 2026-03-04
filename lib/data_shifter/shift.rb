@@ -9,6 +9,7 @@ require_relative "internal/record_utils"
 require_relative "internal/progress_bar"
 require_relative "internal/side_effect_guards"
 require_relative "internal/log_deduplicator"
+require_relative "internal/colors"
 
 # Base class for data shifts. Dry-run by default, progress bars, transaction modes, consistent summaries.
 #
@@ -67,6 +68,7 @@ module DataShifter
     class_attribute :_throttle_interval, default: nil
     class_attribute :_allow_external_requests, default: [], instance_accessor: false
     class_attribute :_suppress_repeated_logs, default: nil, instance_accessor: false
+    class_attribute :_task_blocks, default: [], instance_accessor: false
 
     # Internal exception used by skip! to abort the current process_record.
     # Rescued in _process_one; not propagated.
@@ -128,6 +130,21 @@ module DataShifter
         self._suppress_repeated_logs = !!enabled
       end
 
+      # Define a task block to run instead of collection/process_record.
+      # Multiple blocks run in sequence; labels appear in errors and summary.
+      # Example:
+      #   task "Fix user A" do
+      #     User.find(123).update!(...)
+      #   end
+      #   task "Fix user B" do
+      #     User.find(456).update!(...)
+      #   end
+      def task(label = nil, &block)
+        raise ArgumentError, "task requires a block" unless block_given?
+
+        self._task_blocks = (_task_blocks || []).dup + [{ label: label.presence, block: }]
+      end
+
       def run!
         dry_run = Internal::Env.dry_run?
         result = call(dry_run:)
@@ -139,7 +156,11 @@ module DataShifter
     # --- Public API (intentionally exposed to subclasses) ---
 
     def call
-      _for_each_record_in(collection) { |record| process_record(record) }
+      if self.class._task_blocks.any?
+        _run_task_blocks
+      else
+        _for_each_record_in(collection) { |record| process_record(record) }
+      end
     end
 
     def find_exactly!(model, ids)
@@ -163,7 +184,7 @@ module DataShifter
     end
 
     def log(message)
-      puts message
+      puts Internal::Colors.dim(message)
     end
 
     private
@@ -259,11 +280,13 @@ module DataShifter
     # --- Override points ---
 
     def collection
-      raise NotImplementedError, "#{self.class.name}: override `collection`"
+      raise NotImplementedError,
+            "#{self.class.name}: override `collection` (or use one or more `task 'label' do ... end` blocks for targeted shifts)."
     end
 
     def process_record(_record)
-      raise NotImplementedError, "#{self.class.name}: override `process_record`"
+      raise NotImplementedError,
+            "#{self.class.name}: override `process_record` (or use one or more `task 'label' do ... end` blocks for targeted shifts)."
     end
 
     # --- Record iteration ---
@@ -451,6 +474,89 @@ module DataShifter
 
       # Re-raise to trigger transaction rollback in the wrapping transaction block
       raise Interrupt
+    end
+
+    # --- Task block execution ---
+
+    def _run_task_blocks
+      _validate_no_collection_or_process_record_override!
+
+      blocks = self.class._task_blocks
+      _reset_tracking
+      _print_task_header(blocks.size)
+
+      ActiveSupport::IsolatedExecutionState[:_data_shifter_current_run] = self
+      status_proc = proc { ActiveSupport::IsolatedExecutionState[:_data_shifter_current_run]&.send(:_print_progress) }
+      prev_handlers = Internal::SignalHandler.install_status_traps(status_proc)
+
+      begin
+        blocks.each do |entry|
+          _execute_task_block(entry)
+        end
+        fail! "#{@stats[:failed]} task(s) failed" if @errors.any?
+      rescue Interrupt
+        _handle_interrupt
+      ensure
+        ActiveSupport::IsolatedExecutionState.delete(:_data_shifter_current_run)
+        Internal::SignalHandler.restore_status_traps(prev_handlers)
+      end
+    end
+
+    def _validate_no_collection_or_process_record_override!
+      collection_overridden = instance_method_owner(:collection) != DataShifter::Shift
+      process_record_overridden = instance_method_owner(:process_record) != DataShifter::Shift
+
+      return unless collection_overridden || process_record_overridden
+
+      raise ArgumentError,
+            "Cannot use task blocks and override collection or process_record; use one mode or the other."
+    end
+
+    def instance_method_owner(method_name)
+      self.class.instance_method(method_name).owner
+    end
+
+    def _execute_task_block(entry)
+      label = entry[:label]
+      block = entry[:block]
+
+      if _transaction_mode == :per_record && !dry_run?
+        ::ActiveRecord::Base.transaction do
+          _run_single_task_block(label, block)
+        end
+      else
+        _run_single_task_block(label, block)
+      end
+    end
+
+    def _run_single_task_block(label, block)
+      puts Internal::Colors.cyan(">> #{label} <<") if label.present?
+      instance_exec(&block)
+      @stats[:processed] += 1
+      @stats[:succeeded] += 1
+    rescue SkipRecord
+      # skip! already updated @stats[:skipped] and @skip_reasons; continue to next block
+      nil
+    rescue StandardError => e
+      @stats[:failed] += 1
+      identifier = label || "task"
+      error_text = _format_error(e)
+      @errors << { record: identifier, error: error_text, backtrace: e.backtrace&.first(3) }
+      _log_error(identifier, error_text)
+
+      new_message = label.present? ? "#{label}: #{e.message}" : e.message
+      raise e.class, new_message, e.backtrace
+    end
+
+    def _print_task_header(block_count)
+      Internal::Output.print_task_header(
+        io: $stdout,
+        shift_class: self.class,
+        block_count:,
+        dry_run: dry_run?,
+        transaction_mode: _transaction_mode,
+        status_interval: Internal::Env.status_interval_seconds,
+      )
     end
   end
 end

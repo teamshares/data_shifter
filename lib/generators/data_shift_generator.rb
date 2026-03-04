@@ -5,6 +5,7 @@
 # Usage:
 #   rails g data_shift backfill_users
 #   rails g data_shift backfill_users --model=User
+#   rails g data_shift fix_order_1234 --task
 #
 class DataShiftGenerator < Rails::Generators::NamedBase
   class_option :model,
@@ -16,6 +17,11 @@ class DataShiftGenerator < Rails::Generators::NamedBase
                type: :boolean,
                default: false,
                desc: "Generate RSpec file"
+
+  class_option :task,
+               type: :boolean,
+               default: false,
+               desc: "Generate a task-based shift (uses task blocks instead of collection/process_record)"
 
   def check_for_naming_conflict
     underscored_name = name.underscore
@@ -44,6 +50,29 @@ class DataShiftGenerator < Rails::Generators::NamedBase
     model_name_raw = options[:model].to_s.strip
     @model_name = model_name_raw.present? ? model_name_raw.underscore.singularize.camelize : nil
 
+    if options[:task]
+      _create_task_shift_file(underscored_name)
+    else
+      _create_standard_shift_file(underscored_name)
+    end
+  end
+
+  def create_spec_file
+    return unless options[:spec]
+    return unless rspec_enabled?
+
+    underscored_name = name.underscore
+
+    if options[:task]
+      _create_task_spec_file(underscored_name)
+    else
+      _create_standard_spec_file(underscored_name)
+    end
+  end
+
+  private
+
+  def _create_standard_shift_file(underscored_name)
     collection_body = if @model_name.present?
                         "#{@model_name}.all"
                       else
@@ -76,14 +105,34 @@ class DataShiftGenerator < Rails::Generators::NamedBase
     RUBY
   end
 
-  def create_spec_file
-    return unless options[:spec]
-    return unless rspec_enabled?
+  def _create_task_shift_file(underscored_name)
+    model_comment = @model_name.present? ? "# #{@model_name}.find(...).update!(...)" : "# Model.find(...).update!(...)"
+    task_label = @class_name.underscore.humanize
 
-    underscored_name = name.underscore
+    create_file "lib/data_shifts/#{@timestamp}_#{underscored_name}.rb", <<~RUBY
+      # frozen_string_literal: true
+
+      #   rake data:shift:#{underscored_name}          # Dry run (default)
+      #   COMMIT=1 rake data:shift:#{underscored_name} # Apply changes
+
+      module DataShifts
+        class #{@class_name} < DataShifter::Shift
+          description "TODO: Describe this shift"
+
+          transaction true # or :per_record for per-task transactions
+
+          task "#{task_label}" do
+            #{model_comment}
+          end
+        end
+      end
+    RUBY
+  end
+
+  def _create_standard_spec_file(underscored_name)
     record_arg = @model_name.present? ? @model_name.underscore : "record"
-
     model_for_change = @model_name.present? ? @model_name : "Model"
+
     create_file "spec/lib/data_shifts/#{underscored_name}_spec.rb", <<~RUBY
       # frozen_string_literal: true
 
@@ -98,28 +147,53 @@ class DataShiftGenerator < Rails::Generators::NamedBase
         # Set up test records as needed
         # let(:#{record_arg}) { create(:#{record_arg}) }
 
-        describe "dry run" do
-          it "does not persist changes" do
-            expect do
-              result = run_data_shift(described_class, dry_run: true)
-              expect(result).to be_ok
-            end.not_to change(#{model_for_change}, :count)
+        context "when dry run" do
+          subject(:result) { run_data_shift(described_class, dry_run: true) }
+
+          it "succeeds without persisting changes" do
+            expect { result }.not_to change(#{model_for_change}, :count)
+            expect(result).to be_ok
           end
         end
 
-        describe "commit" do
+        context "when commit" do
+          subject(:result) { run_data_shift(described_class, commit: true) }
+
           it "applies changes" do
-            expect do
-              result = run_data_shift(described_class, commit: true)
-              expect(result).to be_ok
-            end.to change(#{model_for_change}, :count)
+            expect { result }.to change(#{model_for_change}, :count)
+            expect(result).to be_ok
           end
         end
       end
     RUBY
   end
 
-  private
+  def _create_task_spec_file(underscored_name)
+    create_file "spec/lib/data_shifts/#{underscored_name}_spec.rb", <<~RUBY
+      # frozen_string_literal: true
+
+      require "rails_helper"
+      require "data_shifter/spec_helper"
+
+      RSpec.describe DataShifts::#{@class_name} do
+        include DataShifter::SpecHelper
+
+        before { allow($stdout).to receive(:puts) }
+
+        context "when dry run" do
+          subject(:result) { run_data_shift(described_class, dry_run: true) }
+
+          it { is_expected.to be_ok }
+        end
+
+        context "when commit" do
+          subject(:result) { run_data_shift(described_class, commit: true) }
+
+          it { is_expected.to be_ok }
+        end
+      end
+    RUBY
+  end
 
   def rspec_enabled?
     # Check if rspec-rails is available and configured as the test framework
