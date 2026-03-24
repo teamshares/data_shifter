@@ -4,6 +4,10 @@
 
 * N/A
 
+## [0.3.1]
+
+* [Bugfix] No longer swallowing unexpected exceptions (errors in *loading* a data shift still need to be reported). No change to handling of exceptions raised while *running* a shift.
+
 ## [0.3.0]
 
 ### Added
