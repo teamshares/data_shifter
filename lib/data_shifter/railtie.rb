@@ -1,7 +1,8 @@
 # frozen_string_literal: true
 
-require "axn"
 require "rails/railtie"
+
+require_relative "internal/rake_setup_output"
 
 module DataShifter
   class Railtie < Rails::Railtie
@@ -67,12 +68,15 @@ module DataShifter
               klass.run!
             rescue Interrupt
               exit(130)
-            rescue Axn::Failure
-              # run! re-raises after on_error :_print_summary; avoid Rake's duplicate backtrace.
-              exit(1)
             rescue StandardError => e
-              # Errors raised while loading the shift class still need to be reported
-              warn e.full_message(highlight: false, order: :top)
+              unless Internal::RakeExceptionReporting.failure_summary_reported?
+                Internal::RakeSetupOutput.print_failure(
+                  io: $stderr,
+                  exception: e,
+                  file_path:,
+                  task_name:,
+                )
+              end
               exit(1)
             end
           end

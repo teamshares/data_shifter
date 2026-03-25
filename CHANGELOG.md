@@ -4,6 +4,11 @@
 
 * N/A
 
+## [0.3.2]
+
+* [Bugfix] Rake tasks exit quietly after a failed shift run when the shift already printed its failure summary; failures before that summary are still reported on stderr. Replaces rescuing only `Axn::Failure`, which missed most re-raised exceptions from `run!`.
+* [Changed] Setup failures (load, constantize, etc.) print a short framed report on stderr with rake task, file path (relative to `Rails.root`), exception, and a Rails-cleaned backtrace (capped) instead of a full `Exception#full_message` dump.
+
 ## [0.3.1]
 
 * [Bugfix] No longer swallowing unexpected exceptions (errors in *loading* a data shift still need to be reported). No change to handling of exceptions raised while *running* a shift.
