@@ -59,7 +59,7 @@ module DataShifter
     around :_with_transaction_for_dry_run
     before :_reset_tracking
     on_success :_print_summary
-    on_error :_print_summary
+    on_error :_print_summary_for_axn_error
 
     class_attribute :_transaction_mode, default: :single
     class_attribute :_progress_enabled, default: nil
@@ -253,6 +253,7 @@ module DataShifter
     end
 
     def _reset_tracking
+      Internal::RakeExceptionReporting.clear!
       @stats = { processed: 0, succeeded: 0, failed: 0, skipped: 0 }
       @errors = []
       @skip_reasons = Hash.new(0)
@@ -275,6 +276,11 @@ module DataShifter
         task_name: self.class.task_name,
         last_successful_id: @_last_successful_id,
       )
+    end
+
+    def _print_summary_for_axn_error
+      _print_summary
+      Internal::RakeExceptionReporting.mark_failure_summary_reported!
     end
 
     # --- Override points ---
