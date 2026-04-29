@@ -830,12 +830,29 @@ RSpec.describe DataShifter::Shift do
     end
 
     context "Sidekiq guard" do
-      it "calls fake! during dry run and disable! on restore" do
-        expect(Sidekiq::Testing).to receive(:fake!).and_call_original
-        expect(Sidekiq::Testing).to receive(:disable!).and_call_original
+      it "uses fake mode during the block" do
         DataShifter::Internal::SideEffectGuards.with_guards(shift_class: Class.new(described_class)) do
           expect(Sidekiq::Testing.fake?).to be true
         end
+      end
+
+      it "restores previous fake mode after the block" do
+        Sidekiq::Testing.fake!
+        DataShifter::Internal::SideEffectGuards.with_guards(shift_class: Class.new(described_class)) { nil }
+        expect(Sidekiq::Testing.fake?).to be true
+        expect(Sidekiq::Testing).not_to be_disabled
+      end
+
+      it "restores previous inline mode after the block" do
+        Sidekiq::Testing.inline!
+        DataShifter::Internal::SideEffectGuards.with_guards(shift_class: Class.new(described_class)) { nil }
+        expect(Sidekiq::Testing.inline?).to be true
+      end
+
+      it "restores previous disabled (real) mode after the block" do
+        Sidekiq::Testing.disable!
+        DataShifter::Internal::SideEffectGuards.with_guards(shift_class: Class.new(described_class)) { nil }
+        expect(Sidekiq::Testing).to be_disabled
       end
     end
   end

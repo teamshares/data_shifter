@@ -12,7 +12,7 @@ module DataShifter
     #   production runs never load WebMock. On restore we revert to the previous state (enable!
     #   or disable!) so e.g. specs that had WebMock enabled are not left with it disabled.
     # - ActionMailer / ActiveJob / Sidekiq: no extra loading; we only toggle existing config
-    #   for the duration of the block and restore in ensure, so impact is scoped to the run.
+    #   for the duration of the block and restore in ensure (Sidekiq restores prior fake/inline/disable).
     module SideEffectGuards
       class << self
         # Applies side-effect guards, yields, then restores. Call only when running in dry run.
@@ -97,8 +97,21 @@ module DataShifter
         def apply_sidekiq(saved)
           return unless Sidekiq::Testing.respond_to?(:fake!)
 
+          saved[:sidekiq_testing_mode] = capture_sidekiq_testing_mode
           Sidekiq::Testing.fake!
           saved[:sidekiq] = true
+        end
+
+        def capture_sidekiq_testing_mode
+          if Sidekiq::Testing.respond_to?(:__test_mode)
+            Sidekiq::Testing.__test_mode
+          elsif Sidekiq::Testing.fake?
+            :fake
+          elsif Sidekiq::Testing.inline?
+            :inline
+          else
+            :disable
+          end
         end
 
         def restore_guards(saved)
@@ -112,7 +125,18 @@ module DataShifter
 
           return unless saved.delete(:sidekiq)
 
-          Sidekiq::Testing.disable!
+          restore_sidekiq_testing_mode(saved.delete(:sidekiq_testing_mode))
+        end
+
+        def restore_sidekiq_testing_mode(mode)
+          case mode
+          when :fake
+            Sidekiq::Testing.fake!
+          when :inline
+            Sidekiq::Testing.inline!
+          else
+            Sidekiq::Testing.disable!
+          end
         end
       end
     end
