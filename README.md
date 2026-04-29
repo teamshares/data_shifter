@@ -114,7 +114,7 @@ In **dry run** mode, DataShifter automatically blocks or fakes these side effect
 | **HTTP**    | Blocked via WebMock (`disable_net_connect!`). Allow specific hosts with `allow_external_requests [...]` or `DataShifter.config.allow_external_requests`. |
 | **ActionMailer** | `perform_deliveries = false` (restored after run). |
 | **ActiveJob**    | Queue adapter set to `:test` (restored after run). |
-| **Sidekiq**      | `Sidekiq::Testing.fake!` (restored with `disable!` after run). Only applied if `Sidekiq::Testing` is already loaded. |
+| **Sidekiq**      | `Sidekiq::Testing.fake!` for the run; previous mode (`fake!`, `inline!`, or `disable!`) is restored after. Only applied if `Sidekiq::Testing` is already loaded. |
 
 **Guarding other side effects:** For anything we don't cover (e.g. another service, or allowed HTTP that mutates), use e.g. `return if dry_run?` in your shift. DB changes are always rolled back in dry run; only non-DB side effects need this.
 

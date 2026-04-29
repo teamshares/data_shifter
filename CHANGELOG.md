@@ -4,6 +4,10 @@
 
 * N/A
 
+## [0.3.2.1]
+
+* [Bugfix] Dry-run Sidekiq guard restores the previous `Sidekiq::Testing` mode (`fake!`, `inline!`, or `disable!`) instead of always calling `disable!`, which leaked global state and could leave later specs enqueueing work to real Redis.
+
 ## [0.3.2]
 
 * [Bugfix] Rake tasks exit quietly after a failed shift run when the shift already printed its failure summary; failures before that summary are still reported on stderr. Replaces rescuing only `Axn::Failure`, which missed most re-raised exceptions from `run!`.
