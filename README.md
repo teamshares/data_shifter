@@ -111,7 +111,7 @@ In **dry run** mode, DataShifter automatically blocks or fakes these side effect
 
 | Service      | Behavior in dry run |
 |-------------|----------------------|
-| **HTTP**    | Blocked via WebMock (`disable_net_connect!`). Allow specific hosts with `allow_external_requests [...]` or `DataShifter.config.allow_external_requests`. |
+| **HTTP**    | Blocked via WebMock (`disable_net_connect!`). Loopback (`127.0.0.1`, `::1`, `localhost`) is allowed by default so tracing/metrics sidecars (Datadog agent, statsd, OTLP collector, etc.) keep working; opt out with `DataShifter.config.allow_loopback_requests = false`. Allow other hosts with `allow_external_requests [...]` or `DataShifter.config.allow_external_requests`. |
 | **ActionMailer** | `perform_deliveries = false` (restored after run). |
 | **ActiveJob**    | Queue adapter set to `:test` (restored after run). |
 | **Sidekiq**      | `Sidekiq::Testing.fake!` for the run; previous mode (`fake!`, `inline!`, or `disable!`) is restored after. Only applied if `Sidekiq::Testing` is already loaded. |
@@ -221,6 +221,11 @@ Configure DataShifter globally in an initializer:
 DataShifter.configure do |config|
   # Hosts allowed for HTTP during dry run only (no effect in commit mode)
   config.allow_external_requests = ["api.readonly.example.com"]
+
+  # Allow loopback HTTP (127.0.0.1, ::1, localhost) during dry runs (default: true).
+  # Needed so tracing/metrics sidecars (Datadog agent on 8126, statsd on 8125, OTLP
+  # collector, etc.) keep working in dry-run mode.
+  config.allow_loopback_requests = true
 
   # Suppress repeated log messages during a shift run (default: true)
   config.suppress_repeated_logs = true

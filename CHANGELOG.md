@@ -4,6 +4,10 @@
 
 * N/A
 
+## [0.3.3]
+
+* [Bugfix] Dry-run net guard now allows loopback hosts (`127.0.0.1`, `::1`, `localhost`) by default. Previously, any tracing/metrics sidecar listening on loopback (Datadog agent on 8126, statsd on 8125, OTLP collectors, etc.) would trip `WebMock::NetConnectNotAllowedError` from a background tracer thread and abort the rake task — even when the shift itself made no HTTP calls. Opt out with `DataShifter.config.allow_loopback_requests = false` for strict net blocking.
+
 ## [0.3.2.1]
 
 * [Bugfix] Dry-run Sidekiq guard restores the previous `Sidekiq::Testing` mode (`fake!`, `inline!`, or `disable!`) instead of always calling `disable!`, which leaked global state and could leave later specs enqueueing work to real Redis.
