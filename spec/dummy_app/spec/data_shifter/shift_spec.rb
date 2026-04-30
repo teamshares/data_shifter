@@ -794,6 +794,33 @@ RSpec.describe DataShifter::Shift do
       expect(result).to be_ok
     end
 
+    it "allows loopback hosts by default during dry run (Datadog agent, statsd, OTLP, etc.)" do
+      stub_request(:get, "http://127.0.0.1:8126/info").to_return(status: 200, body: "ok")
+      stub_request(:get, "http://localhost:8125/health").to_return(status: 200, body: "ok")
+      stub_request(:get, "http://[::1]:4318/v1/traces").to_return(status: 200, body: "ok")
+
+      DataShifter::Internal::SideEffectGuards.with_guards(shift_class: Class.new(described_class)) do
+        expect(Net::HTTP.get(URI("http://127.0.0.1:8126/info"))).to eq("ok")
+        expect(Net::HTTP.get(URI("http://localhost:8125/health"))).to eq("ok")
+        expect(Net::HTTP.get(URI("http://[::1]:4318/v1/traces"))).to eq("ok")
+      end
+    end
+
+    it "blocks loopback when allow_loopback_requests is disabled" do
+      original = DataShifter.config.allow_loopback_requests
+      DataShifter.config.allow_loopback_requests = false
+
+      expect do
+        DataShifter::Internal::SideEffectGuards.with_guards(shift_class: Class.new(described_class)) do
+          Net::HTTP.get(URI("http://127.0.0.1:8126/info"))
+        end
+      end.to raise_error(DataShifter::ExternalRequestNotAllowedError) do |e|
+        expect(e.attempted_host).to eq("127.0.0.1")
+      end
+    ensure
+      DataShifter.config.allow_loopback_requests = original
+    end
+
     it "restores WebMock after dry run to previous state (e.g. enabled in specs)" do
       migration_class = Class.new(described_class) do
         define_method(:collection) { [] }

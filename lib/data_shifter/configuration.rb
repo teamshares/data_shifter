@@ -16,6 +16,11 @@ module DataShifter
     # Has no effect in commit mode — HTTP is unrestricted when dry_run is false.
     attr_accessor :allow_external_requests
 
+    # Whether to allow loopback HTTP (127.0.0.1, ::1, localhost) during dry runs. Default: true.
+    # Loopback is rarely "external" and is needed for tracing/metrics sidecars (Datadog agent on
+    # 8126, statsd on 8125, OTLP collector, etc.). Set to false if you want strict net blocking.
+    attr_accessor :allow_loopback_requests
+
     # Whether to suppress repeated log messages during a shift run. Default: true.
     # Can be overridden per shift with `suppress_repeated_logs true/false`.
     attr_accessor :suppress_repeated_logs
@@ -33,6 +38,7 @@ module DataShifter
 
     def initialize
       @allow_external_requests = []
+      @allow_loopback_requests = true
       @suppress_repeated_logs = true
       @repeated_log_cap = 1000
       @progress_enabled = true

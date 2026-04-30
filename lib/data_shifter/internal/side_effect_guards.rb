@@ -14,6 +14,13 @@ module DataShifter
     # - ActionMailer / ActiveJob / Sidekiq: no extra loading; we only toggle existing config
     #   for the duration of the block and restore in ensure (Sidekiq restores prior fake/inline/disable).
     module SideEffectGuards
+      # Loopback hosts allowed by default during dry-run net blocking (unless opted out via
+      # DataShifter.config.allow_loopback_requests = false). Localhost is by definition local —
+      # the guard's purpose is to prevent accidental *external* state mutations, not to fight
+      # tracing/metrics sidecars (Datadog agent on 8126, statsd on 8125, OTLP collector, etc.)
+      # which commonly listen on these hosts.
+      DEFAULT_LOOPBACK_HOSTS = %w[127.0.0.1 ::1 localhost].freeze
+
       class << self
         # Applies side-effect guards, yields, then restores. Call only when running in dry run.
         def with_guards(shift_class:, &block)
@@ -62,7 +69,8 @@ module DataShifter
         def allowed_net_hosts(shift_class)
           per_shift = shift_class.respond_to?(:_allow_external_requests) ? shift_class._allow_external_requests : []
           global = DataShifter.config.allow_external_requests
-          Array(per_shift) + Array(global)
+          loopback = DataShifter.config.allow_loopback_requests ? DEFAULT_LOOPBACK_HOSTS : []
+          Array(per_shift) + Array(global) + loopback
         end
 
         def webmock_net_connect_error

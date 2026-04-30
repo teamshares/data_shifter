@@ -5,6 +5,7 @@ RSpec.describe DataShifter::Configuration do
     subject(:config) { described_class.new }
 
     it { expect(config.allow_external_requests).to eq([]) }
+    it { expect(config.allow_loopback_requests).to be true }
     it { expect(config.suppress_repeated_logs).to be true }
     it { expect(config.repeated_log_cap).to eq(1000) }
     it { expect(config.progress_enabled).to be true }
@@ -32,6 +33,7 @@ RSpec.describe DataShifter::Configuration do
     it "yields the config for block configuration" do
       DataShifter.configure do |config|
         config.allow_external_requests = ["example.com"]
+        config.allow_loopback_requests = false
         config.suppress_repeated_logs = false
         config.repeated_log_cap = 500
         config.progress_enabled = false
@@ -39,6 +41,7 @@ RSpec.describe DataShifter::Configuration do
       end
 
       expect(DataShifter.config.allow_external_requests).to eq(["example.com"])
+      expect(DataShifter.config.allow_loopback_requests).to be false
       expect(DataShifter.config.suppress_repeated_logs).to be false
       expect(DataShifter.config.repeated_log_cap).to eq(500)
       expect(DataShifter.config.progress_enabled).to be false
