@@ -559,6 +559,34 @@ RSpec.describe DataShifter::Shift do
     it "stores the throttle interval as a class attribute" do
       expect(migration_class._throttle_interval).to eq(0.01)
     end
+
+    it "defaults _throttle_per to nil when per: is not given" do
+      expect(migration_class._throttle_per).to be_nil
+    end
+
+    context "with per: keyword" do
+      let(:many_records) { create_list(:user, 5) }
+
+      let(:per_migration_class) do
+        recs = many_records
+        Class.new(described_class) do
+          throttle 0.5, per: 2
+
+          define_method(:collection) { recs }
+          define_method(:process_record) { |_record| nil }
+        end
+      end
+
+      it "sleeps only after every N records" do
+        # 5 records with per: 2 → sleep after record 2 and record 4 (2 times)
+        expect_any_instance_of(per_migration_class).to receive(:sleep).with(0.5).exactly(2).times
+        per_migration_class.call(dry_run: true)
+      end
+
+      it "stores the per value as a class attribute" do
+        expect(per_migration_class._throttle_per).to eq(2)
+      end
+    end
   end
 
   describe "CONTINUE_FROM checkpointing" do
