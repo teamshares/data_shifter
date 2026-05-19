@@ -560,8 +560,8 @@ RSpec.describe DataShifter::Shift do
       expect(migration_class._throttle_interval).to eq(0.01)
     end
 
-    it "defaults _throttle_per to nil when per: is not given" do
-      expect(migration_class._throttle_per).to be_nil
+    it "defaults _throttle_per to 1 when per: is not given" do
+      expect(migration_class._throttle_per).to eq(1)
     end
 
     context "with per: keyword" do
