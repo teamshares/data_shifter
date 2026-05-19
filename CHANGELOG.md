@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-* N/A
+* [Feature] `throttle` now accepts an optional `per:` keyword. When set, the sleep is inserted only after processing that many records instead of after every record (e.g. `throttle 1.second, per: 100` sleeps once per 100 records).
 
 ## [0.3.3]
 

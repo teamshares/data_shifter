@@ -310,10 +310,13 @@ Skip reasons are grouped: the summary shows the top 10 reasons by count (e.g. `"
 
 ```ruby
 class SomeShift < DataShifter::Shift
-  throttle 0.1       # sleep seconds between records
-  progress false    # disable progress bar rendering
+  throttle 0.1                  # sleep 0.1s after every record
+  throttle 1.second, per: 100   # sleep 1s after every 100 records
+  progress false                # disable progress bar rendering
 end
 ```
+
+`per:` is optional. Without it, the sleep runs after every record. With `per: N`, the sleep runs after every Nth record — useful for large collections where per-record sleeping would add too much wall-clock time.
 
 
 ## Generator

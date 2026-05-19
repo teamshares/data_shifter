@@ -66,6 +66,7 @@ module DataShifter
     class_attribute :_description, default: nil
     class_attribute :_task_name, default: nil
     class_attribute :_throttle_interval, default: nil
+    class_attribute :_throttle_per, default: 1
     class_attribute :_allow_external_requests, default: [], instance_accessor: false
     class_attribute :_suppress_repeated_logs, default: nil, instance_accessor: false
     class_attribute :_task_blocks, default: [], instance_accessor: false
@@ -113,8 +114,9 @@ module DataShifter
         end
       end
 
-      def throttle(interval)
+      def throttle(interval, per: 1)
         self._throttle_interval = interval
+        self._throttle_per = per
       end
 
       # Allow these hosts (or regexes) for HTTP during dry run only. Combines with DataShifter.config.allow_external_requests.
@@ -401,17 +403,24 @@ module DataShifter
     def _iterate(enum, total)
       progress_on = _progress_enabled.nil? ? DataShifter.config.progress_enabled : _progress_enabled
       bar = Internal::ProgressBar.create(total:, dry_run: dry_run?, enabled: progress_on)
+      throttle_count = 0
       if enum.respond_to?(:find_each)
         enum.find_each do |record|
           _process_one(record) { yield record }
           bar&.increment
-          sleep(_throttle_interval) if _throttle_interval
+          if _throttle_interval
+            throttle_count += 1
+            sleep(_throttle_interval) if (throttle_count % _throttle_per).zero?
+          end
         end
       else
         enum.each do |record|
           _process_one(record) { yield record }
           bar&.increment
-          sleep(_throttle_interval) if _throttle_interval
+          if _throttle_interval
+            throttle_count += 1
+            sleep(_throttle_interval) if (throttle_count % _throttle_per).zero?
+          end
         end
       end
     end
