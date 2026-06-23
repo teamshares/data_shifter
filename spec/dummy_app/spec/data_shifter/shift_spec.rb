@@ -926,12 +926,14 @@ RSpec.describe DataShifter::Shift do
       klass = Class.new(described_class) do
         suppress_repeated_logs false
       end
-      expect(klass._suppress_repeated_logs).to be false
+      expect(klass.send(:_raw_config_override, :suppress_repeated_logs)).to be false
+      expect(klass.resolved_suppress_repeated_logs).to be false
     end
 
-    it "defaults to nil (use config)" do
+    it "defaults to no override (falls back to config)" do
       klass = Class.new(described_class)
-      expect(klass._suppress_repeated_logs).to be_nil
+      expect(klass.send(:_raw_config_override, :suppress_repeated_logs)).to be_nil
+      expect(klass.resolved_suppress_repeated_logs).to eq(DataShifter.config.suppress_repeated_logs)
     end
   end
 
@@ -950,7 +952,7 @@ RSpec.describe DataShifter::Shift do
         define_method(:collection) { self.class.items }
         define_method(:process_record) { |_| nil }
       end
-      expect(klass._progress_enabled).to be_nil
+      expect(klass.progress).to be_nil
 
       expect(DataShifter::Internal::ProgressBar).to receive(:create).with(hash_including(enabled: false)).and_call_original
       klass.call(dry_run: true)
