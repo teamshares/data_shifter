@@ -4,9 +4,9 @@ source "https://rubygems.org"
 
 gem "data_shifter", path: "../.."
 
-# PRO-2774: track the Axn::Configurable DSL branch until it ships in a release.
+# PRO-2774: track axn main now that the Axn::Configurable DSL is merged.
 # Once axn cuts a release including Axn::Configurable, drop this git pin.
-gem "axn", github: "teamshares/axn", branch: "kali/pro-2769-axn-configuration-dsl-for-downstream-gem-consistency"
+gem "axn", github: "teamshares/axn", branch: "main"
 
 gem "rails", "~> 7.0"
 gem "sqlite3", "~> 2.0"

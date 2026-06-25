@@ -367,7 +367,8 @@ RSpec.describe DataShifter::Shift do
   end
 
   describe "#find_exactly!" do
-    let(:migration_instance) { Class.new(described_class).new(dry_run: true) }
+    # axn blocks public `.new`; build via `send` for these white-box unit tests.
+    let(:migration_instance) { Class.new(described_class).send(:new, dry_run: true) }
 
     it "returns records in the order of the given ids" do
       result = migration_instance.find_exactly!(User, [record_b.id, record_a.id, record_c.id])
@@ -1366,12 +1367,12 @@ RSpec.describe DataShifter::Shift do
     describe "NotImplementedError messages" do
       it "includes task hint in collection error" do
         klass = Class.new(described_class)
-        expect { klass.new(dry_run: true).send(:collection) }.to raise_error(NotImplementedError, /task/)
+        expect { klass.send(:new, dry_run: true).send(:collection) }.to raise_error(NotImplementedError, /task/)
       end
 
       it "includes task hint in process_record error" do
         klass = Class.new(described_class)
-        expect { klass.new(dry_run: true).send(:process_record, nil) }.to raise_error(NotImplementedError, /task/)
+        expect { klass.send(:new, dry_run: true).send(:process_record, nil) }.to raise_error(NotImplementedError, /task/)
       end
     end
 
