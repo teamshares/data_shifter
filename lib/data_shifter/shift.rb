@@ -58,7 +58,7 @@ module DataShifter
 
     expects :dry_run, type: :boolean, default: true
 
-    log_calls false if respond_to?(:log_calls)
+    auto_log false
 
     around :_with_log_deduplication
     around :_with_side_effect_guards
