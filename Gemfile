@@ -9,7 +9,7 @@ group :development, :test do
   gem "rails", "~> 7.0"
   gem "rspec", "~> 3.0"
   gem "rspec-rails", "~> 7.0"
-  gem "sidekiq", "~> 7.0"
+  gem "sidekiq", "~> 8.0"
   gem "sqlite3", "~> 2.0"
 end
 
