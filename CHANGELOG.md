@@ -2,7 +2,7 @@
 
 ## [Unreleased]
 
-## [0.4.0]
+## [0.3.4]
 
 * [Feature] `throttle` now accepts an optional `per:` keyword. When set, the sleep is inserted only after processing that many records instead of after every record (e.g. `throttle 1.second, per: 100` sleeps once per 100 records).
 * [Changed] Configuration now rides on the upstream `Axn::Configurable` DSL instead of a hand-rolled config object. The public API is unchanged — `DataShifter.configure { |c| ... }`, `DataShifter.config.x`, and the per-shift `progress`/`suppress_repeated_logs` overrides all keep working. This raises the minimum `axn` version to one that ships `Axn::Configurable`.
