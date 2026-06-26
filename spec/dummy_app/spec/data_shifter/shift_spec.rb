@@ -1533,5 +1533,12 @@ RSpec.describe DataShifter::Shift do
 
       expect { instance.inline_csv }.to raise_error(ArgumentError, /named class/)
     end
+
+    it "raises a helpful error when the csv gem is unavailable" do
+      instance = DataShifts::InlineCsvBasic.send(:new, dry_run: true)
+      allow(instance).to receive(:require).with("csv").and_raise(LoadError)
+
+      expect { instance.inline_csv }.to raise_error(LoadError, /gem "csv"/)
+    end
   end
 end

@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "axn"
-require "csv"
 require "active_support/isolated_execution_state"
 require_relative "internal/env"
 require_relative "internal/output"
@@ -226,7 +225,11 @@ module DataShifter
     #   def process_record(row) = User.find(row["id"]).update!(...)
     #   __END__
     #   id,...
+    #
+    # Lazily requires `csv` (a bundled gem on Ruby 3.4+); raises with a hint to
+    # add it to the Gemfile if unavailable.
     def inline_csv(**csv_opts)
+      _require_csv!
       parsed = CSV.parse(_inline_data_body, headers: true, **csv_opts)
       parsed.is_a?(CSV::Table) ? parsed.each.to_a : parsed
     end
@@ -507,6 +510,16 @@ module DataShifter
 
       @last_status_print = Time.current
       _print_progress
+    end
+
+    # `csv` is lazily required (not a hard dependency) so it isn't dragged into
+    # apps that never call inline_csv. csv ships with Ruby through 3.3 and is a
+    # bundled gem on 3.4+, so this normally just works; on 3.5+ without it in the
+    # Gemfile we surface an actionable message instead of a bare LoadError.
+    def _require_csv!
+      require "csv"
+    rescue LoadError
+      raise LoadError, 'inline_csv needs the csv library. Add `gem "csv"` to your Gemfile (csv is no longer a default gem on Ruby 3.4+).'
     end
 
     # The raw text after this shift file's `__END__` marker. Resolves the

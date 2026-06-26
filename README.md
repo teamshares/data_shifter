@@ -83,6 +83,8 @@ id,time_zone
 
 Options forward straight to `CSV.parse` (e.g. `inline_csv(col_sep: ";")`). Large data sets (the multi-thousand-row variety) are better kept in a separate `.csv` you load yourself, so they can be opened in a spreadsheet editor.
 
+`inline_csv` requires the `csv` library lazily, so it isn't a dependency unless you use it. `csv` ships with Ruby through 3.3 and is a bundled gem on 3.4+; on Ruby 3.4+ you may need to add `gem "csv"` to your Gemfile.
+
 ### Task-based shifts (targeted, one-off changes)
 
 For targeted changes to specific records (e.g. fixing a bug for particular IDs), use `task` blocks instead:
@@ -408,3 +410,4 @@ end
 - `axn` (Shift classes include `Axn`)
 - `ruby-progressbar` (for progress bars)
 - `webmock` (for dry-run HTTP blocking; optional allowlist via `allow_external_requests [...]` / `DataShifter.config.allow_external_requests`)
+- `csv` — only if you use `inline_csv`; required lazily, not a hard dependency (ships with Ruby through 3.3, a bundled gem on 3.4+)

@@ -39,7 +39,6 @@ Gem::Specification.new do |spec|
   spec.add_dependency "activerecord", ">= 7.0"
   spec.add_dependency "activesupport", ">= 7.0"
   spec.add_dependency "axn", ">= 0.1.0-alpha.4", "< 0.2.0" # A terse convention for business logic
-  spec.add_dependency "csv", ">= 3.0" # inline_csv; csv is no longer a default gem on Ruby 3.4+
   spec.add_dependency "railties", ">= 7.0"
   spec.add_dependency "ruby-progressbar", ">= 1.13"
   spec.add_dependency "webmock", ">= 3.18"
