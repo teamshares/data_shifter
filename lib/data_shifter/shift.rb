@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "axn"
+require "csv"
 require "active_support/isolated_execution_state"
 require_relative "internal/env"
 require_relative "internal/output"
@@ -161,17 +162,28 @@ module DataShifter
         nil
       end
 
-      # Define a task block to run instead of collection/process_record.
-      # Multiple blocks run in sequence; labels appear in errors and summary.
-      # Example:
+      # Define a task to run instead of collection/process_record.
+      # Multiple tasks run in sequence; labels appear in errors and summary.
+      #
+      # Block form (arbitrary code, runtime/instance state available):
       #   task "Fix user A" do
       #     User.find(123).update!(...)
       #   end
-      #   task "Fix user B" do
-      #     User.find(456).update!(...)
-      #   end
-      def task(label = nil, &block)
-        raise ArgumentError, "task requires a block" unless block_given?
+      #
+      # Axn class form (sugar for one helper axn; kwargs are static, evaluated
+      # at class-load time, and forwarded to .call! so a failure is never
+      # silently swallowed). Use the block form when you need runtime values:
+      #   task "Recalculate totals", RecalculateTotals, company_id: 123
+      #   # => RecalculateTotals.call!(company_id: 123)
+      def task(label = nil, axn = nil, **axn_kwargs, &block)
+        if axn
+          raise ArgumentError, "task accepts either an Axn class or a block, not both" if block
+          raise ArgumentError, "task expected an Axn class but got #{axn.inspect}" unless axn.is_a?(Class) && axn.include?(Axn)
+
+          block = -> { axn.call!(**axn_kwargs) }
+        elsif block.nil?
+          raise ArgumentError, "task requires a block or an Axn class"
+        end
 
         self._task_blocks = (_task_blocks || []).dup + [{ label: label.presence, block: }]
       end
@@ -203,6 +215,20 @@ module DataShifter
       raise "Expected #{model.name} with ids #{ids.inspect}, but missing: #{missing.inspect}" if missing.any?
 
       ids.map { |id| records_by_id[id] }
+    end
+
+    # Parse CSV colocated with the shift, after a `__END__` marker, so small
+    # data sets can live alongside the code. Returns the data rows as an array
+    # (CSV::Row objects when headers: true, the default — so `row["id"]` works);
+    # extra options forward straight to CSV.parse. Typically used as the
+    # collection:
+    #   def collection = inline_csv
+    #   def process_record(row) = User.find(row["id"]).update!(...)
+    #   __END__
+    #   id,...
+    def inline_csv(**csv_opts)
+      parsed = CSV.parse(_inline_data_body, headers: true, **csv_opts)
+      parsed.is_a?(CSV::Table) ? parsed.each.to_a : parsed
     end
 
     def dry_run? = dry_run
@@ -481,6 +507,22 @@ module DataShifter
 
       @last_status_print = Time.current
       _print_progress
+    end
+
+    # The raw text after this shift file's `__END__` marker. Resolves the
+    # source file via the class constant (works however the shift is invoked,
+    # unlike Ruby's `DATA`, which is only defined for the main script).
+    def _inline_data_body
+      @_inline_data_body ||= begin
+        class_name = self.class.name
+        source = class_name && Object.const_source_location(class_name)&.first
+        raise ArgumentError, "inline_csv requires the shift to be a named class defined in a file" unless source && File.exist?(source)
+
+        parts = File.read(source).split(/^__END__\r?$\n/, 2)
+        raise ArgumentError, "inline_csv: no __END__ data section found in #{source}" if parts.length < 2
+
+        parts.last
+      end
     end
 
     def _format_error(e)

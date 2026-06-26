@@ -1058,6 +1058,72 @@ RSpec.describe DataShifter::Shift do
       end
     end
 
+    describe "axn class form" do
+      it "forwards keyword args to the axn's call!" do
+        received = {}
+        axn = Class.new do
+          include Axn
+          expects :company_id
+          define_method(:call) { received[:company_id] = company_id }
+        end
+        klass = Class.new(described_class) do
+          task "Recalc", axn, company_id: 42
+        end
+
+        result = klass.call(dry_run: false)
+
+        expect(result).to be_ok
+        expect(received[:company_id]).to eq(42)
+      end
+
+      it "calls the axn with no args when no kwargs are given" do
+        called = false
+        axn = Class.new do
+          include Axn
+          define_method(:call) { called = true }
+        end
+        klass = Class.new(described_class) do
+          task "Plain", axn
+        end
+
+        klass.call(dry_run: false)
+
+        expect(called).to be true
+      end
+
+      it "fails the task (label-prefixed) when the axn fails" do
+        axn = Class.new do
+          include Axn
+          def call = fail!("nope")
+        end
+        klass = Class.new(described_class) do
+          task "Do thing", axn
+        end
+
+        result = klass.call(dry_run: false)
+
+        expect(result).not_to be_ok
+        expect(result.exception.message).to include("Do thing: nope")
+      end
+
+      it "raises when given both an axn class and a block" do
+        axn = Class.new { include Axn }
+        expect do
+          Class.new(described_class) do
+            task("X", axn) { nil }
+          end
+        end.to raise_error(ArgumentError, /not both/)
+      end
+
+      it "raises when the positional arg is not an Axn class" do
+        expect do
+          Class.new(described_class) do
+            task "X", String
+          end
+        end.to raise_error(ArgumentError, /Axn/)
+      end
+    end
+
     describe "execution" do
       let(:record) { create(:user) }
 
@@ -1423,6 +1489,49 @@ RSpec.describe DataShifter::Shift do
 
         expect(output.string).to include("Transaction: per-task")
       end
+    end
+  end
+
+  describe "#inline_csv" do
+    require_relative "../fixtures/shifts/inline_csv_basic"
+    require_relative "../fixtures/shifts/inline_csv_custom_sep"
+    require_relative "../fixtures/shifts/inline_csv_no_end"
+
+    it "parses the file's __END__ section as CSV with headers" do
+      instance = DataShifts::InlineCsvBasic.send(:new, dry_run: true)
+
+      expect(instance.inline_csv.map(&:to_h)).to eq(
+        [{ "id" => "1", "name" => "Alice" }, { "id" => "2", "name" => "Bob" }],
+      )
+    end
+
+    it "feeds rows to process_record when used as the collection" do
+      DataShifts::InlineCsvBasic.reset!
+
+      result = DataShifts::InlineCsvBasic.call(dry_run: false)
+
+      expect(result).to be_ok
+      expect(DataShifts::InlineCsvBasic.seen).to eq(
+        [{ "id" => "1", "name" => "Alice" }, { "id" => "2", "name" => "Bob" }],
+      )
+    end
+
+    it "forwards CSV options (e.g. col_sep)" do
+      instance = DataShifts::InlineCsvCustomSep.send(:new, dry_run: true)
+
+      expect(instance.inline_csv(col_sep: ";").first["name"]).to eq("Alice")
+    end
+
+    it "raises when the file has no __END__ data section" do
+      instance = DataShifts::InlineCsvNoEnd.send(:new, dry_run: true)
+
+      expect { instance.inline_csv }.to raise_error(ArgumentError, /__END__/)
+    end
+
+    it "raises for an anonymous shift class with no resolvable source" do
+      instance = Class.new(described_class).send(:new, dry_run: true)
+
+      expect { instance.inline_csv }.to raise_error(ArgumentError, /named class/)
     end
   end
 end

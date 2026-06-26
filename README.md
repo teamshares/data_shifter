@@ -58,6 +58,31 @@ module DataShifts
 end
 ```
 
+### Inline CSV data (small data sets)
+
+When the data driving a shift is small, you can colocate it with the code after a `__END__` marker instead of keeping a separate file. `inline_csv` parses that section and returns the rows (`CSV::Row` objects by default, so `row["col"]` works):
+
+```ruby
+module DataShifts
+  class BackfillTimeZones < DataShifter::Shift
+    description "Set time zones from a fixed list"
+
+    def collection = inline_csv
+
+    def process_record(row)
+      User.find(row["id"]).update!(time_zone: row["time_zone"])
+    end
+  end
+end
+
+__END__
+id,time_zone
+1,Pacific Time (US & Canada)
+2,Eastern Time (US & Canada)
+```
+
+Options forward straight to `CSV.parse` (e.g. `inline_csv(col_sep: ";")`). Large data sets (the multi-thousand-row variety) are better kept in a separate `.csv` you load yourself, so they can be opened in a spreadsheet editor.
+
 ### Task-based shifts (targeted, one-off changes)
 
 For targeted changes to specific records (e.g. fixing a bug for particular IDs), use `task` blocks instead:
@@ -85,6 +110,15 @@ end
 ```
 
 Task blocks run in the context of the shift instance, so they have access to private helper methods, `dry_run?`, `log`, `skip!`, `find_exactly!`, and any other instance methods you define. Use private methods to DRY up shared lookups across tasks.
+
+When a task is just a single helper [axn](https://github.com/teamshares/axn), pass the class instead of a block — its keyword args are forwarded to `.call!`, so a failure is reported instead of silently swallowed:
+
+```ruby
+task "Recalculate company totals", RecalculateTotals, company_id: 123
+# equivalent to: task("Recalculate company totals") { RecalculateTotals.call!(company_id: 123) }
+```
+
+The kwargs are evaluated at class-load time, so this form is for static values; use the block form when you need runtime or instance state.
 
 Task blocks:
 
