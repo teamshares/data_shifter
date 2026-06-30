@@ -1106,6 +1106,26 @@ RSpec.describe DataShifter::Shift do
         expect(result.exception.message).to include("Do thing: nope")
       end
 
+      # Regression guard for the axn <-> data_shifter message boundary. axn's
+      # error-presentation semantics have churned (axn PRs #109/#132/#134); this
+      # pins that a helper axn's base header aggregates under the task label and
+      # that result.error and the exception message stay consistent.
+      it "aggregates the helper axn's base header under the task label" do
+        axn = Class.new do
+          include Axn
+          error "Could not sync"
+          def call = fail!("record locked")
+        end
+        klass = Class.new(described_class) do
+          task "Step one", axn
+        end
+
+        result = klass.call(dry_run: false)
+
+        expect(result.error).to eq("Step one: Could not sync: record locked")
+        expect(result.exception.message).to eq("Step one: Could not sync: record locked")
+      end
+
       it "raises when given both an axn class and a block" do
         axn = Class.new { include Axn }
         expect do
