@@ -116,7 +116,8 @@ module DataShifter
       #   progress         # read the raw override (nil when unset; does NOT fall back to config)
       def progress(enabled = nil)
         if enabled.nil?
-          _raw_config_override(:progress_enabled)
+          raw = raw_progress_enabled
+          Axn::Configurable::UNSET.equal?(raw) ? nil : raw
         else
           progress_enabled(!!enabled)
         end
@@ -141,24 +142,6 @@ module DataShifter
       # Example: suppress_repeated_logs false
       def suppress_repeated_logs(enabled)
         super(!!enabled)
-      end
-
-      # Reads the nearest per-class override for an `overridable:` setting, walking
-      # up the ancestry, and returns nil when no class in the chain has set one.
-      # Unlike `resolved_<name>`, this does NOT fall back to DataShifter.config —
-      # it preserves the historical getter semantics of the per-shift DSL.
-      def _raw_config_override(name)
-        klass = self
-        while klass.is_a?(Module)
-          if klass.instance_variable_defined?(:@_axn_config_overrides)
-            store = klass.instance_variable_get(:@_axn_config_overrides)
-            return store[name] if store.key?(name)
-          end
-          break unless klass.is_a?(Class) && klass.superclass
-
-          klass = klass.superclass
-        end
-        nil
       end
 
       # Define a task to run instead of collection/process_record.
@@ -524,17 +507,29 @@ module DataShifter
 
     # The raw text after this shift file's `__END__` marker. Resolves the
     # source file via the class constant (works however the shift is invoked,
-    # unlike Ruby's `DATA`, which is only defined for the main script).
+    # unlike Ruby's `DATA`, which is only defined for the main script). Uses
+    # Ripper (not a text-based split) to find the real `__END__` token, so a
+    # `__END__`-looking line inside a heredoc or comment isn't mistaken for it.
     def _inline_data_body
       @_inline_data_body ||= begin
         class_name = self.class.name
         source = class_name && Object.const_source_location(class_name)&.first
         raise ArgumentError, "inline_csv requires the shift to be a named class defined in a file" unless source && File.exist?(source)
 
-        parts = File.read(source).split(/^__END__\r?$\n/, 2)
-        raise ArgumentError, "inline_csv: no __END__ data section found in #{source}" if parts.length < 2
+        require "ripper"
+        content = File.read(source)
+        offset = 0
+        found = false
+        Ripper.lex(content).each do |(_pos, type, token, _state)|
+          offset += token.length
+          if type == :on___end__
+            found = true
+            break
+          end
+        end
+        raise ArgumentError, "inline_csv: no __END__ data section found in #{source}" unless found
 
-        parts.last
+        content[offset..]
       end
     end
 

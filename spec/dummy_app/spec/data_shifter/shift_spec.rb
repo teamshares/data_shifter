@@ -927,13 +927,13 @@ RSpec.describe DataShifter::Shift do
       klass = Class.new(described_class) do
         suppress_repeated_logs false
       end
-      expect(klass.send(:_raw_config_override, :suppress_repeated_logs)).to be false
+      expect(klass.raw_suppress_repeated_logs).to be false
       expect(klass.resolved_suppress_repeated_logs).to be false
     end
 
     it "defaults to no override (falls back to config)" do
       klass = Class.new(described_class)
-      expect(klass.send(:_raw_config_override, :suppress_repeated_logs)).to be_nil
+      expect(klass.raw_suppress_repeated_logs).to equal(Axn::Configurable::UNSET)
       expect(klass.resolved_suppress_repeated_logs).to eq(DataShifter.config.suppress_repeated_logs)
     end
   end
@@ -1516,6 +1516,8 @@ RSpec.describe DataShifter::Shift do
     require_relative "../fixtures/shifts/inline_csv_basic"
     require_relative "../fixtures/shifts/inline_csv_custom_sep"
     require_relative "../fixtures/shifts/inline_csv_no_end"
+    require_relative "../fixtures/shifts/inline_csv_no_trailing_newline"
+    require_relative "../fixtures/shifts/inline_csv_heredoc_fake_end"
 
     it "parses the file's __END__ section as CSV with headers" do
       instance = DataShifts::InlineCsvBasic.send(:new, dry_run: true)
@@ -1546,6 +1548,18 @@ RSpec.describe DataShifter::Shift do
       instance = DataShifts::InlineCsvNoEnd.send(:new, dry_run: true)
 
       expect { instance.inline_csv }.to raise_error(ArgumentError, /__END__/)
+    end
+
+    it "returns an empty result when __END__ is the last line with no trailing newline" do
+      instance = DataShifts::InlineCsvNoTrailingNewline.send(:new, dry_run: true)
+
+      expect(instance.inline_csv).to eq([])
+    end
+
+    it "ignores a __END__-looking line inside a heredoc and splits at the real marker" do
+      instance = DataShifts::InlineCsvHeredocFakeEnd.send(:new, dry_run: true)
+
+      expect(instance.inline_csv.map(&:to_h)).to eq([{ "id" => "1", "name" => "Real" }])
     end
 
     it "raises for an anonymous shift class with no resolvable source" do
