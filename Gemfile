@@ -9,6 +9,7 @@ gemspec
 gem "axn", github: "teamshares/axn", branch: "main"
 
 group :development, :test do
+  gem "csv" # exercises inline_csv in specs; not a runtime dependency (see gemspec) since it's opt-in
   gem "factory_bot_rails", "~> 6.0"
   gem "rails", "~> 7.0"
   gem "rspec", "~> 3.0"
