@@ -2,6 +2,7 @@
 
 require "axn"
 require "active_support/isolated_execution_state"
+require_relative "settings"
 require_relative "internal/env"
 require_relative "internal/output"
 require_relative "internal/signal_handler"
