@@ -61,4 +61,19 @@ RSpec.describe "DataShifter configuration" do
       expect(DataShifter.config.progress_enabled).to be true
     end
   end
+
+  describe "config_namespace" do
+    it "declares an explicit, stable namespace rather than the implicit module-identity default" do
+      expect(DataShifter.config_namespace).to eq(:data_shifter)
+    end
+
+    it "does not collide with axn core's own :core-namespaced overridable settings on Shift" do
+      klass = Class.new(DataShifter::Shift) do
+        progress false
+      end
+
+      expect(klass.progress).to be false
+      expect(klass.resolved_sidekiq_job_tag_sources).to eq(Axn.config.sidekiq_job_tag_sources)
+    end
+  end
 end

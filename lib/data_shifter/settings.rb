@@ -22,6 +22,13 @@ require "axn"
 module DataShifter
   extend Axn::Configurable
 
+  # Namespaces DataShifter's overridable settings (`suppress_repeated_logs`, `progress_enabled`) so
+  # they can't collide with axn core's own `:core`-namespaced overridable settings — both compose
+  # onto every Shift subclass, since Shift `include Axn` as well as `DataShifter.overrides`. Declared
+  # explicitly (matching Axn::Configuration's own `config_namespace :core`) even though the default
+  # (this module object) is already collision-safe; must come before any `setting`.
+  config_namespace :data_shifter
+
   # Hosts or regexes allowed for HTTP during dry run only (combined with per-shift allow_external_requests).
   # Has no effect in commit mode — HTTP is unrestricted when dry_run is false.
   setting :allow_external_requests, default: []
