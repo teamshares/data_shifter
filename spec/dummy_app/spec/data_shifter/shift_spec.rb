@@ -927,14 +927,14 @@ RSpec.describe DataShifter::Shift do
       klass = Class.new(described_class) do
         suppress_repeated_logs false
       end
-      expect(klass.raw_suppress_repeated_logs).to be false
-      expect(klass.resolved_suppress_repeated_logs).to be false
+      expect(klass.suppress_repeated_logs_override).to be false
+      expect(DataShifter.resolve_override_for(klass, :suppress_repeated_logs)).to be false
     end
 
     it "defaults to no override (falls back to config)" do
       klass = Class.new(described_class)
-      expect(klass.raw_suppress_repeated_logs).to equal(Axn::Configurable::UNSET)
-      expect(klass.resolved_suppress_repeated_logs).to eq(DataShifter.config.suppress_repeated_logs)
+      expect(klass.suppress_repeated_logs_override).to equal(Axn::Configurable::UNSET)
+      expect(DataShifter.resolve_override_for(klass, :suppress_repeated_logs)).to eq(DataShifter.config.suppress_repeated_logs)
     end
   end
 

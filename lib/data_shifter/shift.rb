@@ -52,9 +52,10 @@ module DataShifter
     include Axn
     # Per-class overrides for `progress_enabled` and `suppress_repeated_logs`
     # (declared `overridable: true` on the DataShifter module). Adds class-level
-    # `progress_enabled` / `resolved_progress_enabled` (and likewise for
-    # suppress_repeated_logs) accessors; the thin `progress` / `suppress_repeated_logs`
-    # aliases below preserve the historical public DSL.
+    # `progress_enabled` (bare reader resolves the override, else falls back to
+    # config) / `progress_enabled_override` (and likewise for suppress_repeated_logs)
+    # accessors; the thin `progress` / `suppress_repeated_logs` aliases below
+    # preserve the historical public DSL.
     include DataShifter.overrides
 
     expects :dry_run, type: :boolean, default: true
@@ -117,7 +118,7 @@ module DataShifter
       #   progress         # read the raw override (nil when unset; does NOT fall back to config)
       def progress(enabled = nil)
         if enabled.nil?
-          raw = raw_progress_enabled
+          raw = progress_enabled_override
           Axn::Configurable::UNSET.equal?(raw) ? nil : raw
         else
           progress_enabled(!!enabled)
@@ -236,7 +237,10 @@ module DataShifter
     # --- Axn lifecycle hooks ---
 
     def _with_log_deduplication(chain)
-      effective = self.class.resolved_suppress_repeated_logs
+      # DataShifter.resolve_override_for, not the generated `suppress_repeated_logs` reader:
+      # that name is shadowed by Shift's own class method (a required-arg setter, see above),
+      # which would raise ArgumentError rather than resolve the override + config fallback.
+      effective = DataShifter.resolve_override_for(self.class, :suppress_repeated_logs)
       unless effective && defined?(::Rails) && ::Rails.respond_to?(:logger) && ::Rails.logger
         chain.call
         return
@@ -443,7 +447,10 @@ module DataShifter
     end
 
     def _iterate(enum, total)
-      progress_on = self.class.resolved_progress_enabled
+      # DataShifter.resolve_override_for: the shadow-proof framework path (see
+      # _with_log_deduplication). progress_enabled isn't currently shadowed on Shift,
+      # but resolving this way is consistent and doesn't depend on that staying true.
+      progress_on = DataShifter.resolve_override_for(self.class, :progress_enabled)
       bar = Internal::ProgressBar.create(total:, dry_run: dry_run?, enabled: progress_on)
       throttle_count = 0
       if enum.respond_to?(:find_each)

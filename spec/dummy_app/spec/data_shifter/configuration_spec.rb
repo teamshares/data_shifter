@@ -73,7 +73,7 @@ RSpec.describe "DataShifter configuration" do
       end
 
       expect(klass.progress).to be false
-      expect(klass.resolved_sidekiq_job_tag_sources).to eq(Axn.config.sidekiq_job_tag_sources)
+      expect(klass.sidekiq_job_tag_sources).to eq(Axn.config.sidekiq_job_tag_sources)
     end
   end
 end
