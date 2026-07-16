@@ -4,6 +4,7 @@
 
 ## [0.3.4]
 
+* [Changed] Bumped the minimum Rails (ActiveRecord, ActiveSupport, Railties) to `>= 7.2`, matching upstream `axn`. Its `on_success` now fires via `ActiveRecord.after_all_transactions_commit`, which requires ActiveRecord 7.2+.
 * [Feature] `throttle` now accepts an optional `per:` keyword. When set, the sleep is inserted only after processing that many records instead of after every record (e.g. `throttle 1.second, per: 100` sleeps once per 100 records).
 * [Feature] `task` now accepts an Axn class as sugar for a one-axn task: `task "label", SomeAxn, foo: 1` forwards to `SomeAxn.call!(foo: 1)`, so a helper axn's failure is never silently swallowed. Keyword args are static (evaluated at class-load); use the block form when you need runtime values. Passing both a class and a block raises.
 * [Feature] `inline_csv` reads CSV colocated with the shift after a `__END__` marker, so small data sets can live alongside the code. Returns the data rows (`CSV::Row` objects by default, so `row["id"]` works); options forward to `CSV.parse`. Typically used as `def collection = inline_csv`. `csv` is required lazily (not a hard dependency) — add `gem "csv"` to your Gemfile if you're on Ruby 3.4+ and hit a load error.

@@ -406,7 +406,7 @@ end
 ## Requirements
 
 - Ruby ≥ 3.2.1
-- Rails (ActiveRecord, ActiveSupport, Railties) ≥ 7.0
+- Rails (ActiveRecord, ActiveSupport, Railties) ≥ 7.2
 - `axn` (Shift classes include `Axn`)
 - `ruby-progressbar` (for progress bars)
 - `webmock` (for dry-run HTTP blocking; optional allowlist via `allow_external_requests [...]` / `DataShifter.config.allow_external_requests`)
