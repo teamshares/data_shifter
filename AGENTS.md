@@ -25,6 +25,12 @@ For agents working on this gem (not for downstream apps writing shift files — 
 - `rake` (default task) runs both — matches CI
 - `axn` is git-pinned to `branch: "main"` in both Gemfiles; `bundle update axn` in both to bump
 
+## Docs & planning artifacts
+
+Internal notes — brainstorming specs, implementation plans, anything the `superpowers` skills
+generate — go in `internal-docs/specs/` and `internal-docs/plans/` (excluded from the packaged
+gem via `spec.files`). `docs/` is reserved for a future user-facing site; nothing internal there.
+
 ## Conventions
 
 - TDD: failing test before implementation

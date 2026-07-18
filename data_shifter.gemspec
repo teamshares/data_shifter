@@ -28,8 +28,8 @@ Gem::Specification.new do |spec|
   spec.files = IO.popen(%w[git ls-files -z], chdir: __dir__, err: IO::NULL) do |ls|
     ls.readlines("\x0", chomp: true).reject do |f|
       (f == gemspec) ||
-        f.start_with?(*%w[bin/ spec/ .git .github Gemfile Gemfile.lock .rspec_status pkg/ node_modules/ tmp/ .rspec .rubocop
-                          .tool-versions package.json])
+        f.start_with?(*%w[bin/ spec/ internal-docs/ .git .github Gemfile Gemfile.lock .rspec_status pkg/ node_modules/ tmp/ .rspec
+                          .rubocop .tool-versions package.json])
     end
   end
   spec.bindir = "exe"
