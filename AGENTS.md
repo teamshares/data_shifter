@@ -23,6 +23,9 @@ For agents working on this gem (not for downstream apps writing shift files — 
 - Specs: `cd spec/dummy_app && bundle exec rspec`
 - Lint: `bundle exec rubocop -A` (gem root only; `spec/dummy_app/**/*` excluded)
 - `rake` (default task) runs both — matches CI
+- `bin/setup` installs a lefthook pre-commit hook: RuboCop (check-only, `--force-exclusion`) on
+  staged Ruby files, blocking the commit on any offense (fix + re-stage yourself). `git commit
+  --no-verify` skips it; CI runs the full `rake` regardless.
 - `axn` is git-pinned to `branch: "main"` in both Gemfiles; `bundle update axn` in both to bump
 
 ## Docs & planning artifacts

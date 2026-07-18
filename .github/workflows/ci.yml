@@ -4,36 +4,8 @@ on:
   push:
     branches:
       - main
-
   pull_request:
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    name: Ruby ${{ matrix.ruby }}
-    strategy:
-      matrix:
-        ruby:
-          - '3.2.2'
-
-    steps:
-      - uses: actions/checkout@v7
-      - name: Set up Ruby
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: ${{ matrix.ruby }}
-          bundler-cache: true
-      - name: Cache dummy app bundle
-        uses: actions/cache@v6
-        with:
-          path: spec/dummy_app/vendor/bundle
-          key: dummy-app-bundle-${{ runner.os }}-${{ matrix.ruby }}-${{ hashFiles('spec/dummy_app/Gemfile') }}
-          restore-keys: |
-            dummy-app-bundle-${{ runner.os }}-${{ matrix.ruby }}-
-      - name: Install dummy app dependencies
-        run: |
-          cd spec/dummy_app
-          bundle config set --local path 'vendor/bundle'
-          bundle install
-      - name: Run the default task
-        run: bundle exec rake
+  ci:
+    uses: teamshares/axn/.github/workflows/gem-ci.yml@main
