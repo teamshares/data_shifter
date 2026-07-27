@@ -14,3 +14,10 @@ jobs:
     # invalidates this repo's branch-protection ruleset.
     name: CI
     uses: teamshares/axn/.github/workflows/gem-ci.yml@main
+    # The default rake task's railtie_rake_spec cases shell out to `bundle exec rake` under
+    # spec/dummy_app/Gemfile (which git-pins axn), so that bundle must be installed first — its
+    # git source has to be checked out for the subprocess. dummy-app-path override (axn#199)
+    # points the shared workflow at our spec/dummy_app instead of the default spec_rails/dummy_app.
+    with:
+      main-needs-dummy-app: true
+      dummy-app-path: spec/dummy_app
