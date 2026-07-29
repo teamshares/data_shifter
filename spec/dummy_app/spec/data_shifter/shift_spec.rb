@@ -397,35 +397,42 @@ RSpec.describe DataShifter::Shift do
       end
     end
 
+    around do |example|
+      original = ENV.slice("COMMIT", "DRY_RUN")
+      ENV.delete("COMMIT")
+      ENV.delete("DRY_RUN")
+      example.run
+      ENV.delete("COMMIT")
+      ENV.delete("DRY_RUN")
+      ENV.update(original)
+    end
+
     it "parses DRY_RUN=true from ENV when COMMIT is not set" do
-      allow(ENV).to receive(:[]).with("COMMIT").and_return(nil)
-      allow(ENV).to receive(:fetch).with("DRY_RUN", "true").and_return("true")
+      ENV["DRY_RUN"] = "true"
       expect(migration_class).to receive(:call).with(dry_run: true).and_return(Axn::Result.ok("done"))
       migration_class.run!
     end
 
     it "parses DRY_RUN=false from ENV when COMMIT is not set" do
-      allow(ENV).to receive(:[]).with("COMMIT").and_return(nil)
-      allow(ENV).to receive(:fetch).with("DRY_RUN", "true").and_return("false")
+      ENV["DRY_RUN"] = "false"
       expect(migration_class).to receive(:call).with(dry_run: false).and_return(Axn::Result.ok("done"))
       migration_class.run!
     end
 
     it "parses COMMIT=1 from ENV and calls with dry_run: false" do
-      allow(ENV).to receive(:[]).with("COMMIT").and_return("1")
+      ENV["COMMIT"] = "1"
       expect(migration_class).to receive(:call).with(dry_run: false).and_return(Axn::Result.ok("done"))
       migration_class.run!
     end
 
     it "parses COMMIT=true from ENV and calls with dry_run: false" do
-      allow(ENV).to receive(:[]).with("COMMIT").and_return("true")
+      ENV["COMMIT"] = "true"
       expect(migration_class).to receive(:call).with(dry_run: false).and_return(Axn::Result.ok("done"))
       migration_class.run!
     end
 
     it "raises when the shift fails (Rake will exit non-zero)" do
-      allow(ENV).to receive(:[]).with("COMMIT").and_return(nil)
-      allow(ENV).to receive(:fetch).with("DRY_RUN", "true").and_return("true")
+      ENV["DRY_RUN"] = "true"
       allow(migration_class).to receive(:call).with(dry_run: true).and_return(Axn::Result.error("something broke"))
       expect { migration_class.run! }.to raise_error(StandardError, "something broke")
     end

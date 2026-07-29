@@ -4,6 +4,7 @@
 
 ## [0.3.4]
 
+* [Changed] `COMMIT` / `DRY_RUN` are now parsed as real booleans (`1/true/t/yes/y/on` vs `0/false/f/no/n/off`, case- and whitespace-insensitive). **`DRY_RUN=1` now means a dry run** — previously the `DRY_RUN == "true"` compare read `DRY_RUN=1` as "not dry" and committed the shift, which is data loss for a value that is truthy in every other tool. Unrecognized values (e.g. `COMMIT=garbage`) now raise `ArgumentError` instead of silently dry-running. `DRY_RUN=false` / `COMMIT=1` still commit.
 * [Changed] Bumped the minimum Rails (ActiveRecord, ActiveSupport, Railties) to `>= 7.2`, matching upstream `axn`. Its `on_success` now fires via `ActiveRecord.after_all_transactions_commit`, which requires ActiveRecord 7.2+.
 * [Feature] `throttle` now accepts an optional `per:` keyword. When set, the sleep is inserted only after processing that many records instead of after every record (e.g. `throttle 1.second, per: 100` sleeps once per 100 records).
 * [Feature] `task` now accepts an Axn class as sugar for a one-axn task: `task "label", SomeAxn, foo: 1` forwards to `SomeAxn.call!(foo: 1)`, so a helper axn's failure is never silently swallowed. Keyword args are static (evaluated at class-load); use the block form when you need runtime values. Passing both a class and a block raises.
