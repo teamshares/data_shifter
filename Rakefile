@@ -11,6 +11,8 @@ RuboCop::RakeTask.new
 
 task default: %i[spec rubocop]
 
-# Ensure specs and rubocop pass before release (must run first; enhance appends)
-release_task = Rake::Task["release"]
-release_task.prerequisites.unshift(:default)
+# Gate release on tests, the axn-core way: `release` (from bundler/gem_tasks) depends on `build`,
+# so enhancing `build` to require the default task (specs + RuboCop) runs the full suite before the
+# gem is built or pushed — a failure aborts the release before any tag/push. Mirrors axn core's
+# `Rake::Task["build"].enhance([:verify])`.
+Rake::Task["build"].enhance([:default])

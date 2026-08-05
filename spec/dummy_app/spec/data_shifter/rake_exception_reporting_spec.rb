@@ -6,8 +6,9 @@ RSpec.describe DataShifter::Internal::RakeExceptionReporting do
     described_class.clear!
     allow(ENV).to receive(:[]).and_call_original
     allow(ENV).to receive(:fetch).and_call_original
+    # Force dry-run mode deterministically (COMMIT unset, DRY_RUN blank => dry).
     allow(ENV).to receive(:[]).with("COMMIT").and_return(nil)
-    allow(ENV).to receive(:fetch).with("DRY_RUN", "true").and_return("true")
+    allow(ENV).to receive(:[]).with("DRY_RUN").and_return(nil)
   end
 
   describe "with Shift integration" do

@@ -58,6 +58,33 @@ module DataShifts
 end
 ```
 
+### Inline CSV data (small data sets)
+
+When the data driving a shift is small, you can colocate it with the code after a `__END__` marker instead of keeping a separate file. `inline_csv` parses that section and returns the rows (`CSV::Row` objects by default, so `row["col"]` works):
+
+```ruby
+module DataShifts
+  class BackfillTimeZones < DataShifter::Shift
+    description "Set time zones from a fixed list"
+
+    def collection = inline_csv
+
+    def process_record(row)
+      User.find(row["id"]).update!(time_zone: row["time_zone"])
+    end
+  end
+end
+
+__END__
+id,time_zone
+1,Pacific Time (US & Canada)
+2,Eastern Time (US & Canada)
+```
+
+Options forward straight to `CSV.parse` (e.g. `inline_csv(col_sep: ";")`). Large data sets (the multi-thousand-row variety) are better kept in a separate `.csv` you load yourself, so they can be opened in a spreadsheet editor.
+
+`inline_csv` requires the `csv` library lazily, so it isn't a dependency unless you use it. `csv` ships with Ruby through 3.3 and is a bundled gem on 3.4+; on Ruby 3.4+ you may need to add `gem "csv"` to your Gemfile.
+
 ### Task-based shifts (targeted, one-off changes)
 
 For targeted changes to specific records (e.g. fixing a bug for particular IDs), use `task` blocks instead:
@@ -86,6 +113,15 @@ end
 
 Task blocks run in the context of the shift instance, so they have access to private helper methods, `dry_run?`, `log`, `skip!`, `find_exactly!`, and any other instance methods you define. Use private methods to DRY up shared lookups across tasks.
 
+When a task is just a single helper [axn](https://github.com/teamshares/axn), pass the class instead of a block — its keyword args are forwarded to `.call!`, so a failure is reported instead of silently swallowed:
+
+```ruby
+task "Recalculate company totals", RecalculateTotals, company_id: 123
+# equivalent to: task("Recalculate company totals") { RecalculateTotals.call!(company_id: 123) }
+```
+
+The kwargs are evaluated at class-load time, so this form is for static values; use the block form when you need runtime or instance state.
+
 Task blocks:
 
 - Run in sequence within the same lifecycle (transaction, dry run protection, summary)
@@ -104,6 +140,8 @@ Shifts run in **dry run** mode by default. DB changes are always rolled back in 
 - **Dry run (default)**: `rake data:shift:backfill_foo`
 - **Commit**: `COMMIT=1 rake data:shift:backfill_foo`
   - (`COMMIT=true` or `DRY_RUN=false` also commit)
+
+`COMMIT` and `DRY_RUN` are parsed as booleans — `1`, `true`, `t`, `yes`, `y`, `on` are truthy; `0`, `false`, `f`, `no`, `n`, `off` are falsey (case- and whitespace-insensitive). `COMMIT=<truthy>` commits; otherwise `DRY_RUN` decides, defaulting to a dry run — so `DRY_RUN=1` is a **dry run**, not a commit. An unrecognized value (e.g. `COMMIT=please`) raises rather than guessing a side.
 
 ### Automatic side-effect guards (dry run)
 
@@ -370,7 +408,8 @@ end
 ## Requirements
 
 - Ruby ≥ 3.2.1
-- Rails (ActiveRecord, ActiveSupport, Railties) ≥ 7.0
+- Rails (ActiveRecord, ActiveSupport, Railties) ≥ 7.2
 - `axn` (Shift classes include `Axn`)
 - `ruby-progressbar` (for progress bars)
 - `webmock` (for dry-run HTTP blocking; optional allowlist via `allow_external_requests [...]` / `DataShifter.config.allow_external_requests`)
+- `csv` — only if you use `inline_csv`; required lazily, not a hard dependency (ships with Ruby through 3.3, a bundled gem on 3.4+)

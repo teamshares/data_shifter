@@ -7,14 +7,27 @@ module DataShifter
     module Env
       module_function
 
-      # Determine dry_run mode from environment variables.
-      # COMMIT=1 or COMMIT=true means dry_run=false
-      # DRY_RUN=false means dry_run=false; default is true
+      TRUTHY = %w[1 true t yes y on].freeze
+      FALSEY = %w[0 false f no n off].freeze
+
+      # COMMIT=<truthy> means commit. Otherwise DRY_RUN decides, defaulting to a dry run.
       def dry_run?
-        if ENV["COMMIT"].present?
-          !%w[1 true].include?(ENV["COMMIT"].to_s.downcase)
+        return !boolean!("COMMIT") if ENV["COMMIT"].present?
+        return true if ENV["DRY_RUN"].blank?
+
+        boolean!("DRY_RUN")
+      end
+
+      # Raises on anything unrecognized rather than picking a side. The old `DRY_RUN == "true"`
+      # compare silently read `DRY_RUN=1` as "not dry" and committed the shift — a value that is
+      # truthy in every other tool has to mean dry run here or it means data loss.
+      def boolean!(var)
+        raw = ENV.fetch(var, nil)
+        case raw.to_s.strip.downcase
+        when *TRUTHY then true
+        when *FALSEY then false
         else
-          ENV.fetch("DRY_RUN", "true") == "true"
+          raise ArgumentError, "#{var}=#{raw.inspect} is not a boolean — use one of: #{(TRUTHY + FALSEY).join(", ")}"
         end
       end
 

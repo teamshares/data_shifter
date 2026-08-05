@@ -367,7 +367,8 @@ RSpec.describe DataShifter::Shift do
   end
 
   describe "#find_exactly!" do
-    let(:migration_instance) { Class.new(described_class).new(dry_run: true) }
+    # axn blocks public `.new`; build via `send` for these white-box unit tests.
+    let(:migration_instance) { Class.new(described_class).send(:new, dry_run: true) }
 
     it "returns records in the order of the given ids" do
       result = migration_instance.find_exactly!(User, [record_b.id, record_a.id, record_c.id])
@@ -396,35 +397,42 @@ RSpec.describe DataShifter::Shift do
       end
     end
 
+    around do |example|
+      original = ENV.slice("COMMIT", "DRY_RUN")
+      ENV.delete("COMMIT")
+      ENV.delete("DRY_RUN")
+      example.run
+      ENV.delete("COMMIT")
+      ENV.delete("DRY_RUN")
+      ENV.update(original)
+    end
+
     it "parses DRY_RUN=true from ENV when COMMIT is not set" do
-      allow(ENV).to receive(:[]).with("COMMIT").and_return(nil)
-      allow(ENV).to receive(:fetch).with("DRY_RUN", "true").and_return("true")
+      ENV["DRY_RUN"] = "true"
       expect(migration_class).to receive(:call).with(dry_run: true).and_return(Axn::Result.ok("done"))
       migration_class.run!
     end
 
     it "parses DRY_RUN=false from ENV when COMMIT is not set" do
-      allow(ENV).to receive(:[]).with("COMMIT").and_return(nil)
-      allow(ENV).to receive(:fetch).with("DRY_RUN", "true").and_return("false")
+      ENV["DRY_RUN"] = "false"
       expect(migration_class).to receive(:call).with(dry_run: false).and_return(Axn::Result.ok("done"))
       migration_class.run!
     end
 
     it "parses COMMIT=1 from ENV and calls with dry_run: false" do
-      allow(ENV).to receive(:[]).with("COMMIT").and_return("1")
+      ENV["COMMIT"] = "1"
       expect(migration_class).to receive(:call).with(dry_run: false).and_return(Axn::Result.ok("done"))
       migration_class.run!
     end
 
     it "parses COMMIT=true from ENV and calls with dry_run: false" do
-      allow(ENV).to receive(:[]).with("COMMIT").and_return("true")
+      ENV["COMMIT"] = "true"
       expect(migration_class).to receive(:call).with(dry_run: false).and_return(Axn::Result.ok("done"))
       migration_class.run!
     end
 
     it "raises when the shift fails (Rake will exit non-zero)" do
-      allow(ENV).to receive(:[]).with("COMMIT").and_return(nil)
-      allow(ENV).to receive(:fetch).with("DRY_RUN", "true").and_return("true")
+      ENV["DRY_RUN"] = "true"
       allow(migration_class).to receive(:call).with(dry_run: true).and_return(Axn::Result.error("something broke"))
       expect { migration_class.run! }.to raise_error(StandardError, "something broke")
     end
@@ -926,12 +934,14 @@ RSpec.describe DataShifter::Shift do
       klass = Class.new(described_class) do
         suppress_repeated_logs false
       end
-      expect(klass._suppress_repeated_logs).to be false
+      expect(klass.suppress_repeated_logs_override).to be false
+      expect(DataShifter.resolve_override_for(klass, :suppress_repeated_logs)).to be false
     end
 
-    it "defaults to nil (use config)" do
+    it "defaults to no override (falls back to config)" do
       klass = Class.new(described_class)
-      expect(klass._suppress_repeated_logs).to be_nil
+      expect(klass.suppress_repeated_logs_override).to equal(Axn::Configurable::UNSET)
+      expect(DataShifter.resolve_override_for(klass, :suppress_repeated_logs)).to eq(DataShifter.config.suppress_repeated_logs)
     end
   end
 
@@ -950,7 +960,7 @@ RSpec.describe DataShifter::Shift do
         define_method(:collection) { self.class.items }
         define_method(:process_record) { |_| nil }
       end
-      expect(klass._progress_enabled).to be_nil
+      expect(klass.progress).to be_nil
 
       expect(DataShifter::Internal::ProgressBar).to receive(:create).with(hash_including(enabled: false)).and_call_original
       klass.call(dry_run: true)
@@ -1052,6 +1062,92 @@ RSpec.describe DataShifter::Shift do
         end
         expect(parent._task_blocks.size).to eq(1)
         expect(child._task_blocks.size).to eq(2)
+      end
+    end
+
+    describe "axn class form" do
+      it "forwards keyword args to the axn's call!" do
+        received = {}
+        axn = Class.new do
+          include Axn
+          expects :company_id
+          define_method(:call) { received[:company_id] = company_id }
+        end
+        klass = Class.new(described_class) do
+          task "Recalc", axn, company_id: 42
+        end
+
+        result = klass.call(dry_run: false)
+
+        expect(result).to be_ok
+        expect(received[:company_id]).to eq(42)
+      end
+
+      it "calls the axn with no args when no kwargs are given" do
+        called = false
+        axn = Class.new do
+          include Axn
+          define_method(:call) { called = true }
+        end
+        klass = Class.new(described_class) do
+          task "Plain", axn
+        end
+
+        klass.call(dry_run: false)
+
+        expect(called).to be true
+      end
+
+      it "fails the task (label-prefixed) when the axn fails" do
+        axn = Class.new do
+          include Axn
+          def call = fail!("nope")
+        end
+        klass = Class.new(described_class) do
+          task "Do thing", axn
+        end
+
+        result = klass.call(dry_run: false)
+
+        expect(result).not_to be_ok
+        expect(result.exception.message).to include("Do thing: nope")
+      end
+
+      # Regression guard for the axn <-> data_shifter message boundary. axn's
+      # error-presentation semantics have churned (axn PRs #109/#132/#134); this
+      # pins that a helper axn's base header aggregates under the task label and
+      # that result.error and the exception message stay consistent.
+      it "aggregates the helper axn's base header under the task label" do
+        axn = Class.new do
+          include Axn
+          error "Could not sync"
+          def call = fail!("record locked")
+        end
+        klass = Class.new(described_class) do
+          task "Step one", axn
+        end
+
+        result = klass.call(dry_run: false)
+
+        expect(result.error).to eq("Step one: Could not sync: record locked")
+        expect(result.exception.message).to eq("Step one: Could not sync: record locked")
+      end
+
+      it "raises when given both an axn class and a block" do
+        axn = Class.new { include Axn }
+        expect do
+          Class.new(described_class) do
+            task("X", axn) { nil }
+          end
+        end.to raise_error(ArgumentError, /not both/)
+      end
+
+      it "raises when the positional arg is not an Axn class" do
+        expect do
+          Class.new(described_class) do
+            task "X", String
+          end
+        end.to raise_error(ArgumentError, /Axn/)
       end
     end
 
@@ -1364,12 +1460,12 @@ RSpec.describe DataShifter::Shift do
     describe "NotImplementedError messages" do
       it "includes task hint in collection error" do
         klass = Class.new(described_class)
-        expect { klass.new(dry_run: true).send(:collection) }.to raise_error(NotImplementedError, /task/)
+        expect { klass.send(:new, dry_run: true).send(:collection) }.to raise_error(NotImplementedError, /task/)
       end
 
       it "includes task hint in process_record error" do
         klass = Class.new(described_class)
-        expect { klass.new(dry_run: true).send(:process_record, nil) }.to raise_error(NotImplementedError, /task/)
+        expect { klass.send(:new, dry_run: true).send(:process_record, nil) }.to raise_error(NotImplementedError, /task/)
       end
     end
 
@@ -1420,6 +1516,70 @@ RSpec.describe DataShifter::Shift do
 
         expect(output.string).to include("Transaction: per-task")
       end
+    end
+  end
+
+  describe "#inline_csv" do
+    require_relative "../fixtures/shifts/inline_csv_basic"
+    require_relative "../fixtures/shifts/inline_csv_custom_sep"
+    require_relative "../fixtures/shifts/inline_csv_no_end"
+    require_relative "../fixtures/shifts/inline_csv_no_trailing_newline"
+    require_relative "../fixtures/shifts/inline_csv_heredoc_fake_end"
+
+    it "parses the file's __END__ section as CSV with headers" do
+      instance = DataShifts::InlineCsvBasic.send(:new, dry_run: true)
+
+      expect(instance.inline_csv.map(&:to_h)).to eq(
+        [{ "id" => "1", "name" => "Alice" }, { "id" => "2", "name" => "Bob" }],
+      )
+    end
+
+    it "feeds rows to process_record when used as the collection" do
+      DataShifts::InlineCsvBasic.reset!
+
+      result = DataShifts::InlineCsvBasic.call(dry_run: false)
+
+      expect(result).to be_ok
+      expect(DataShifts::InlineCsvBasic.seen).to eq(
+        [{ "id" => "1", "name" => "Alice" }, { "id" => "2", "name" => "Bob" }],
+      )
+    end
+
+    it "forwards CSV options (e.g. col_sep)" do
+      instance = DataShifts::InlineCsvCustomSep.send(:new, dry_run: true)
+
+      expect(instance.inline_csv(col_sep: ";").first["name"]).to eq("Alice")
+    end
+
+    it "raises when the file has no __END__ data section" do
+      instance = DataShifts::InlineCsvNoEnd.send(:new, dry_run: true)
+
+      expect { instance.inline_csv }.to raise_error(ArgumentError, /__END__/)
+    end
+
+    it "returns an empty result when __END__ is the last line with no trailing newline" do
+      instance = DataShifts::InlineCsvNoTrailingNewline.send(:new, dry_run: true)
+
+      expect(instance.inline_csv).to eq([])
+    end
+
+    it "ignores a __END__-looking line inside a heredoc and splits at the real marker" do
+      instance = DataShifts::InlineCsvHeredocFakeEnd.send(:new, dry_run: true)
+
+      expect(instance.inline_csv.map(&:to_h)).to eq([{ "id" => "1", "name" => "Real" }])
+    end
+
+    it "raises for an anonymous shift class with no resolvable source" do
+      instance = Class.new(described_class).send(:new, dry_run: true)
+
+      expect { instance.inline_csv }.to raise_error(ArgumentError, /named class/)
+    end
+
+    it "raises a helpful error when the csv gem is unavailable" do
+      instance = DataShifts::InlineCsvBasic.send(:new, dry_run: true)
+      allow(instance).to receive(:require).with("csv").and_raise(LoadError)
+
+      expect { instance.inline_csv }.to raise_error(LoadError, /gem "csv"/)
     end
   end
 end
