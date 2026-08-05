@@ -141,6 +141,8 @@ Shifts run in **dry run** mode by default. DB changes are always rolled back in 
 - **Commit**: `COMMIT=1 rake data:shift:backfill_foo`
   - (`COMMIT=true` or `DRY_RUN=false` also commit)
 
+`COMMIT` and `DRY_RUN` are parsed as booleans — `1`, `true`, `t`, `yes`, `y`, `on` are truthy; `0`, `false`, `f`, `no`, `n`, `off` are falsey (case- and whitespace-insensitive). `COMMIT=<truthy>` commits; otherwise `DRY_RUN` decides, defaulting to a dry run — so `DRY_RUN=1` is a **dry run**, not a commit. An unrecognized value (e.g. `COMMIT=please`) raises rather than guessing a side.
+
 ### Automatic side-effect guards (dry run)
 
 In **dry run** mode, DataShifter automatically blocks or fakes these side effects so unguarded code is less likely to hit the network or send mail/jobs:
