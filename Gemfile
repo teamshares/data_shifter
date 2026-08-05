@@ -4,10 +4,6 @@ source "https://rubygems.org"
 
 gemspec
 
-# PRO-2774: track axn main now that the Axn::Configurable DSL is merged.
-# Once axn cuts a release including Axn::Configurable, drop this git pin.
-gem "axn", github: "teamshares/axn", branch: "main"
-
 group :development, :test do
   gem "csv" # exercises inline_csv in specs; not a runtime dependency (see gemspec) since it's opt-in
   gem "factory_bot_rails", "~> 6.0"
