@@ -4,7 +4,13 @@ ENV["RAILS_ENV"] ||= "test"
 ENV["RACK_ENV"] ||= "test"
 
 require "webmock/rspec"
-require "sidekiq/testing"
+require "sidekiq"
+
+if Sidekiq.respond_to?(:testing!)
+  Sidekiq.testing!(:fake) # Sidekiq >= 8: `require "sidekiq/testing"` is deprecated in favor of this
+else
+  require "sidekiq/testing" # Sidekiq < 8: only entry point for the Testing API
+end
 
 require File.expand_path("../config/environment", __dir__)
 
