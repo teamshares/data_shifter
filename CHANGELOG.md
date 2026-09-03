@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.3.5]
+
+* [Changed] `Shift#run!` now wraps its call in `Axn::Extensions::InvokedVia.with(:data_shifter)`, tagging every axn in the run (including nested sub-axns and enqueue-time job tags) with `invoked_via: :data_shifter`. Bumps the minimum `axn` to `>= 0.1.0-alpha.6`, the first release shipping `Axn::Extensions::InvokedVia`.
+
 ## [0.3.4]
 
 * [Changed] `COMMIT` / `DRY_RUN` are now parsed as real booleans (`1/true/t/yes/y/on` vs `0/false/f/no/n/off`, case- and whitespace-insensitive). **`DRY_RUN=1` now means a dry run** — previously the `DRY_RUN == "true"` compare read `DRY_RUN=1` as "not dry" and committed the shift, which is data loss for a value that is truthy in every other tool. Unrecognized values (e.g. `COMMIT=garbage`) now raise `ArgumentError` instead of silently dry-running. `DRY_RUN=false` / `COMMIT=1` still commit.
