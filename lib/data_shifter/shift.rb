@@ -174,7 +174,7 @@ module DataShifter
 
       def run!
         dry_run = Internal::Env.dry_run?
-        result = call(dry_run:)
+        result = Axn::Extensions::InvokedVia.with(:data_shifter) { call(dry_run:) }
         raise result.exception if result.exception
         raise StandardError, result.error unless result.ok?
       end

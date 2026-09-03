@@ -35,7 +35,7 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency "activerecord", ">= 7.2"
   spec.add_dependency "activesupport", ">= 7.2"
-  spec.add_dependency "axn", ">= 0.1.0-alpha.5", "< 0.2.0" # A terse convention for business logic
+  spec.add_dependency "axn", ">= 0.1.0-alpha.6", "< 0.2.0" # A terse convention for business logic
   spec.add_dependency "railties", ">= 7.2"
   spec.add_dependency "ruby-progressbar", ">= 1.13"
   spec.add_dependency "webmock", ">= 3.18"
