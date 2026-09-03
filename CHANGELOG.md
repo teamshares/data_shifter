@@ -5,6 +5,7 @@
 ## [0.3.5]
 
 * [Changed] `Shift#run!` now wraps its call in `Axn::Extensions::InvokedVia.with(:data_shifter)`, tagging every axn in the run (including nested sub-axns and enqueue-time job tags) with `invoked_via: :data_shifter`. Bumps the minimum `axn` to `>= 0.1.0-alpha.6`, the first release shipping `Axn::Extensions::InvokedVia`.
+* [Fixed] Test suite no longer triggers Sidekiq's `require "sidekiq/testing"` deprecation warning; it now uses `Sidekiq.testing!(:fake)` on Sidekiq >= 8 and falls back to the old `require` on older versions.
 
 ## [0.3.4]
 
