@@ -407,7 +407,7 @@ end
 
 ## Requirements
 
-- Ruby ≥ 3.2.1
+- Ruby ≥ 3.3
 - Rails (ActiveRecord, ActiveSupport, Railties) ≥ 7.2
 - `axn` (Shift classes include `Axn`)
 - `ruby-progressbar` (for progress bars)

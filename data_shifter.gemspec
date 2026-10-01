@@ -15,7 +15,7 @@ Gem::Specification.new do |spec|
   spec.license = "MIT"
 
   # NOTE: depends on axn which requires 3.2.1+
-  spec.required_ruby_version = ">= 3.2.1"
+  spec.required_ruby_version = ">= 3.3"
 
   spec.metadata["homepage_uri"] = spec.homepage
   spec.metadata["source_code_uri"] = spec.homepage
